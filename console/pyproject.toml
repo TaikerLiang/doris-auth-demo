@@ -1,0 +1,11 @@
+[project]
+name = "doris-console"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.156.4",
+    "jinja2>=3.1.6",
+    "pymysql>=1.2.3",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.54.0",
+]

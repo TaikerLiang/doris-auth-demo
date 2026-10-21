@@ -1,0 +1,302 @@
+<title>Doris 權限架構</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  /* Layout: one reading column; the C4 diagram breaks out wider and scrolls on its own at phone width. */
+  :root {
+    --bg: #f4f6f7;
+    --surface: #ffffff;
+    --fg: #17202a;
+    --muted: #59656f;
+    --line: #d3d9de;
+    --edge: #46525c;
+    --auth: #0f766e;
+    --doris: #3446c9;
+    --client: #a3530a;
+    --ext: #6b737c;
+    --person: #1f3b5c;
+    --on-team: #ffffff;
+    --callout: #e9f3f2;
+    --font-display: "IBM Plex Sans", "Noto Sans TC", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", "Noto Sans TC", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1418; --surface: #161d23; --fg: #e5eaee; --muted: #98a4ae; --line: #2a343d;
+      --edge: #a9b3bc; --auth: #3fd0bd; --doris: #8d9cff; --client: #f2a23c; --ext: #9aa2ab;
+      --person: #9dbbe0; --on-team: #0f1418; --callout: #13282a; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1418; --surface: #161d23; --fg: #e5eaee; --muted: #98a4ae; --line: #2a343d;
+    --edge: #a9b3bc; --auth: #3fd0bd; --doris: #8d9cff; --client: #f2a23c; --ext: #9aa2ab;
+    --person: #9dbbe0; --on-team: #0f1418; --callout: #13282a; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.65 var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 40px 64px;
+  }
+  main { max-width: 1180px; margin: 0 auto; display: grid; gap: 48px; }
+  .prose { max-width: 72ch; }
+  h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 20px; font-weight: 600; }
+  p { margin: 0; }
+  .eyebrow { font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  header { display: grid; gap: 12px; }
+  header p { color: var(--muted); }
+  section { display: grid; gap: 16px; min-width: 0; }
+  code { font-family: var(--font-mono); font-size: 0.9em; }
+
+  .diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .diagram svg { display: block; width: 100%; min-width: 900px; height: auto; }
+  svg text { font-family: var(--font-body); fill: var(--fg); }
+  svg .box { fill: var(--surface); stroke-width: 1.5; }
+  svg .name { font-weight: 600; font-size: 16px; }
+  svg .kind { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+  svg .desc { font-size: 12.5px; fill: var(--muted); }
+  svg .strip-text { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; fill: var(--on-team); }
+  svg .rel { stroke: var(--edge); stroke-width: 1.5; fill: none; }
+  svg .rel-label { font-size: 12px; fill: var(--fg); }
+  svg .rel-num { font-family: var(--font-mono); font-weight: 600; }
+  svg .label-bg { fill: var(--surface); }
+  svg .arrowhead { fill: var(--edge); }
+  .t-auth { stroke: var(--auth); } .f-auth { fill: var(--auth); }
+  .t-doris { stroke: var(--doris); } .f-doris { fill: var(--doris); }
+  .t-client { stroke: var(--client); } .f-client { fill: var(--client); }
+  .t-ext { stroke: var(--ext); stroke-dasharray: 6 4; } .f-ext { fill: var(--ext); }
+  .t-person { stroke: var(--person); } .f-person { fill: var(--person); }
+
+  .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .swatch.auth { background: var(--auth); } .swatch.doris { background: var(--doris); }
+  .swatch.client { background: var(--client); } .swatch.ext { background: var(--ext); }
+  .swatch.person { background: var(--person); border-radius: 50%; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { font-weight: 600; font-size: 12px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; }
+  td.num { font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.tech { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+  .team { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
+
+  .callout { background: var(--callout); border: 1px solid var(--line); border-left: 4px solid var(--auth); border-radius: 8px; padding: 16px 20px; display: grid; gap: 8px; }
+  .callout ul { margin: 0; padding-left: 20px; }
+  .scope { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .scope > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+  .scope h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .scope ul { margin: 0; padding-left: 20px; color: var(--muted); }
+</style>
+
+<main>
+  <header>
+    <span class="eyebrow">C4 Model · Level 1 · System Context</span>
+    <h1>Doris 權限架構</h1>
+    <p class="prose">本圖只收錄 Auth、Doris、Client（DAO）三個團隊已達成共識的部分。Doris 只做內建帳密驗證和 RBAC；每個人對應一個 Doris 帳號，由 Tool Console 建立並授權，DAO 再以使用者本人的身分連線查詢。</p>
+  </header>
+
+  <section aria-labelledby="ctx-title">
+    <h2 id="ctx-title">System Context</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 1180 670" role="img" aria-label="C4 System Context 圖：Data User、Data Owner、Corporate IdP、DAO Service、Credential Store、Tool Console、Doris Platform 之間的關係">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>
+          </marker>
+        </defs>
+
+        <!-- Relationships (drawn first so boxes sit on top) -->
+        <line class="rel" x1="340" y1="100" x2="244" y2="100" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="250" y="70" width="84" height="20" rx="3"/>
+        <text class="rel-label" x="292" y="85" text-anchor="middle"><tspan class="rel-num">1</tspan> 登入</text>
+
+        <line class="rel" x1="420" y1="140" x2="420" y2="256" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="428" y="186" width="142" height="20" rx="3"/>
+        <text class="rel-label" x="432" y="201"><tspan class="rel-num">2</tspan> 請求資料（帶 JWT）</text>
+
+        <line class="rel" x1="340" y1="262" x2="190" y2="144" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="150" y="206" width="124" height="20" rx="3"/>
+        <text class="rel-label" x="212" y="221" text-anchor="middle"><tspan class="rel-num">3</tspan> 驗證 token 簽章</text>
+
+        <line class="rel" x1="520" y1="320" x2="636" y2="320" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="530" y="292" width="100" height="20" rx="3"/>
+        <text class="rel-label" x="580" y="307" text-anchor="middle"><tspan class="rel-num">4</tspan> 讀取密碼</text>
+
+        <line class="rel" x1="420" y1="380" x2="420" y2="516" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="428" y="436" width="150" height="20" rx="3"/>
+        <text class="rel-label" x="432" y="451"><tspan class="rel-num">5</tspan> 以使用者身分查詢</text>
+
+        <line class="rel" x1="1040" y1="140" x2="1040" y2="256" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="900" y="186" width="132" height="20" rx="3"/>
+        <text class="rel-label" x="1028" y="201" text-anchor="end"><tspan class="rel-num">6</tspan> 審核權限申請</text>
+
+        <line class="rel" x1="1040" y1="380" x2="1040" y2="516" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="826" y="436" width="206" height="20" rx="3"/>
+        <text class="rel-label" x="1028" y="451" text-anchor="end"><tspan class="rel-num">7</tspan> 建立帳號、角色、GRANT</text>
+
+        <line class="rel" x1="940" y1="320" x2="824" y2="320" marker-end="url(#arrow)"/>
+        <rect class="label-bg" x="826" y="292" width="110" height="20" rx="3"/>
+        <text class="rel-label" x="881" y="307" text-anchor="middle"><tspan class="rel-num">8</tspan> 寫入密碼副本</text>
+
+        <!-- People -->
+        <g>
+          <circle cx="420" cy="34" r="22" class="f-person"/>
+          <rect x="340" y="60" width="160" height="80" rx="26" class="f-person"/>
+          <text x="420" y="92" text-anchor="middle" class="name" style="fill: var(--on-team)">Data User</text>
+          <text x="420" y="112" text-anchor="middle" class="desc" style="fill: var(--on-team); opacity: .85">[Person] 查詢資料的員工</text>
+        </g>
+        <g>
+          <circle cx="1040" cy="34" r="22" class="f-person"/>
+          <rect x="960" y="60" width="160" height="80" rx="26" class="f-person"/>
+          <text x="1040" y="92" text-anchor="middle" class="name" style="fill: var(--on-team)">Data Owner</text>
+          <text x="1040" y="112" text-anchor="middle" class="desc" style="fill: var(--on-team); opacity: .85">[Person] 決定資料權限</text>
+        </g>
+
+        <!-- Corporate IdP (external) -->
+        <g>
+          <rect x="20" y="40" width="220" height="104" rx="8" class="box t-ext"/>
+          <rect x="20" y="40" width="220" height="24" rx="8" class="f-ext"/>
+          <rect x="20" y="56" width="220" height="8" class="f-ext"/>
+          <text x="32" y="57" class="strip-text">EXTERNAL</text>
+          <text x="130" y="92" text-anchor="middle" class="name">Corporate IdP</text>
+          <text x="130" y="110" text-anchor="middle" class="kind">[External System]</text>
+          <text x="130" y="130" text-anchor="middle" class="desc">簽發 OIDC token</text>
+        </g>
+
+        <!-- DAO Service -->
+        <g>
+          <rect x="320" y="260" width="200" height="120" rx="8" class="box t-client"/>
+          <rect x="320" y="260" width="200" height="24" rx="8" class="f-client"/>
+          <rect x="320" y="276" width="200" height="8" class="f-client"/>
+          <text x="332" y="277" class="strip-text">CLIENT TEAM</text>
+          <text x="420" y="312" text-anchor="middle" class="name">DAO Service</text>
+          <text x="420" y="330" text-anchor="middle" class="kind">[Software System]</text>
+          <text x="420" y="352" text-anchor="middle" class="desc">驗證 token，以使用者</text>
+          <text x="420" y="369" text-anchor="middle" class="desc">本人身分連線 Doris</text>
+        </g>
+
+        <!-- Credential Store -->
+        <g>
+          <rect x="640" y="260" width="180" height="120" rx="8" class="box t-auth"/>
+          <rect x="640" y="260" width="180" height="24" rx="8" class="f-auth"/>
+          <rect x="640" y="276" width="180" height="8" class="f-auth"/>
+          <text x="652" y="277" class="strip-text">AUTH TEAM</text>
+          <text x="730" y="312" text-anchor="middle" class="name">Credential Store</text>
+          <text x="730" y="330" text-anchor="middle" class="kind">[Redis, shared]</text>
+          <text x="730" y="352" text-anchor="middle" class="desc">user_id → Doris 密碼</text>
+          <text x="730" y="369" text-anchor="middle" class="desc">（副本）</text>
+        </g>
+
+        <!-- Tool Console -->
+        <g>
+          <rect x="940" y="260" width="200" height="120" rx="8" class="box t-auth"/>
+          <rect x="940" y="260" width="200" height="24" rx="8" class="f-auth"/>
+          <rect x="940" y="276" width="200" height="8" class="f-auth"/>
+          <text x="952" y="277" class="strip-text">AUTH TEAM</text>
+          <text x="1040" y="312" text-anchor="middle" class="name">Tool Console</text>
+          <text x="1040" y="330" text-anchor="middle" class="kind">[Spring Boot]</text>
+          <text x="1040" y="352" text-anchor="middle" class="desc">權限審核、組織資料、</text>
+          <text x="1040" y="369" text-anchor="middle" class="desc">密碼正本、outbox relay</text>
+        </g>
+
+        <!-- Doris Platform -->
+        <g>
+          <rect x="320" y="520" width="820" height="120" rx="8" class="box t-doris"/>
+          <rect x="320" y="520" width="820" height="24" rx="8" class="f-doris"/>
+          <rect x="320" y="536" width="820" height="8" class="f-doris"/>
+          <text x="332" y="537" class="strip-text">DORIS TEAM</text>
+          <text x="730" y="574" text-anchor="middle" class="name">Doris Platform</text>
+          <text x="730" y="592" text-anchor="middle" class="kind">[Software System · Apache Doris 4.1.4]</text>
+          <text x="730" y="616" text-anchor="middle" class="desc">只做內建帳密驗證與 RBAC，套用帳號上已設定好的角色與權限（table / column / row）</text>
+        </g>
+
+        <!-- Legend -->
+        <g transform="translate(20, 420)">
+          <text x="0" y="0" class="kind">LEGEND</text>
+          <rect x="0" y="14" width="14" height="14" rx="3" class="f-auth"/><text x="24" y="26" class="desc">Auth team</text>
+          <rect x="0" y="40" width="14" height="14" rx="3" class="f-doris"/><text x="24" y="52" class="desc">Doris team</text>
+          <rect x="0" y="66" width="14" height="14" rx="3" class="f-client"/><text x="24" y="78" class="desc">Client team（DAO）</text>
+          <rect x="0" y="92" width="14" height="14" rx="3" class="f-ext"/><text x="24" y="104" class="desc">外部系統（企業 IT）</text>
+          <circle cx="7" cy="125" r="7" class="f-person"/><text x="24" y="130" class="desc">人員</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-labelledby="rel-title">
+    <h2 id="rel-title">關係</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>來源 → 目標</th><th>內容</th><th>技術</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>Data User → Corporate IdP</td><td>登入，取得 OIDC token</td><td class="tech">OIDC</td></tr>
+          <tr><td class="num">2</td><td>Data User → DAO Service</td><td>透過業務系統請求資料，請求帶 token</td><td class="tech">HTTPS + JWT</td></tr>
+          <tr><td class="num">3</td><td>DAO Service → Corporate IdP</td><td>驗證 token 簽章後取出 user_id 與 section id；不信任 client 自帶的參數</td><td class="tech">JWKS</td></tr>
+          <tr><td class="num">4</td><td>DAO Service → Credential Store</td><td>以 user_id 讀取該使用者的 Doris 密碼</td><td class="tech">Redis GET</td></tr>
+          <tr><td class="num">5</td><td>DAO Service → Doris Platform</td><td>以使用者本人的 Doris 帳號連線查詢；DAO 不做權限判斷</td><td class="tech">MySQL protocol / JDBC</td></tr>
+          <tr><td class="num">6</td><td>Data Owner → Tool Console</td><td>透過既有 approval workflow 決定哪些資料開給哪些 section 或人</td><td class="tech">HTTPS</td></tr>
+          <tr><td class="num">7</td><td>Tool Console → Doris Platform</td><td>outbox relay 依核准結果建立帳號、角色、GRANT / REVOKE、row policy</td><td class="tech">JDBC · ADMIN_PRIV 帳號</td></tr>
+          <tr><td class="num">8</td><td>Tool Console → Credential Store</td><td>寫入密碼副本；正本加密存在 Tool Console DB</td><td class="tech">Redis SET / DEL</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="team-title">
+    <h2 id="team-title">團隊與責任</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>團隊 / 角色</th><th>擁有</th><th>負責</th><th>不負責</th></tr></thead>
+        <tbody>
+          <tr><td><span class="team"><i class="swatch auth"></i>Auth team</span></td><td>Tool Console、Credential Store（Redis）</td><td>組織與權限對應、帳號與密碼產生、outbox relay、寫入 Doris 與 Redis</td><td>Doris 叢集維運、資料查詢、容量規劃</td></tr>
+          <tr><td><span class="team"><i class="swatch doris"></i>Doris team</span></td><td>Doris Platform</td><td>叢集與容量；提供 Tool Console 使用的 ADMIN_PRIV 帳號（不含 NODE_PRIV）</td><td>決定誰能看什麼</td></tr>
+          <tr><td><span class="team"><i class="swatch client"></i>Client team</span></td><td>DAO Service</td><td>驗證 token、從 Redis 取密碼、以使用者身分連 Doris、連線池設計</td><td>權限判斷與規則</td></tr>
+          <tr><td><span class="team"><i class="swatch person"></i>Data Owner</span></td><td>—</td><td>在 Tool Console 審核並決定資料權限</td><td>組織成員維護</td></tr>
+          <tr><td><span class="team"><i class="swatch ext"></i>企業 IT</span></td><td>Corporate IdP</td><td>簽發含 user_id、section id 的 token</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="assume-title">
+    <h2 id="assume-title">跨團隊假設</h2>
+    <div class="callout prose">
+      <p>Auth 的設計會產生「每個使用者一個 Doris 帳號」。DAO 必須以使用者本人的身分連線，連線數與同時活躍的使用者數成正比。</p>
+      <ul>
+        <li>Doris team：評估 <code>qe_max_connection</code>（預設每台 FE 1024 條）與 FE 數量。</li>
+        <li>Client team：設計依使用者分開的連線池與閒置逾時。</li>
+      </ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="scope-title">
+    <h2 id="scope-title">範圍外與已知風險</h2>
+    <div class="scope">
+      <div>
+        <h3>範圍外</h3>
+        <ul>
+          <li>人員離職、調動的偵測與處理：Tool Console 目前無法得知。</li>
+          <li>效能與容量規劃：由 Doris team 負責。</li>
+        </ul>
+      </div>
+      <div>
+        <h3>已知風險</h3>
+        <ul>
+          <li>離職者的 Doris 帳號、Redis 密碼與權限會殘留；目前只靠 IdP 停用後 DAO 驗不過 token 來擋。</li>
+          <li>DAO 能以任何人的身分連線，必須被完全信任。</li>
+          <li>Tool Console 的 ADMIN_PRIV 帳號可讀寫所有資料。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>

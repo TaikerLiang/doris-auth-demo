@@ -1,0 +1,71 @@
+services:
+  fe:
+    image: apache/doris:fe-4.1.4
+    hostname: fe
+    # Default fe.conf reserves an 8 GB heap (-Xms8192m), which starves BE inside Docker Desktop.
+    entrypoint:
+      - bash
+      - -c
+      - sed -i 's/-Xmx8192m -Xms8192m/-Xmx2g -Xms2g/' /opt/apache-doris/fe/conf/fe.conf && exec bash init_fe.sh
+    environment:
+      FE_SERVERS: fe1:172.30.80.2:9010
+      FE_ID: 1
+    ports:
+      - "8030:8030" # FE web UI / HTTP API
+      - "9030:9030" # MySQL protocol (JDBC: jdbc:mysql://localhost:9030)
+    volumes:
+      - fe-meta:/opt/apache-doris/fe/doris-meta
+    healthcheck:
+      # SHOW FRONTENDS is answered by FE alone; SELECT needs a BE in 4.x
+      test: ["CMD", "mysql", "-uroot", "-P9030", "-h127.0.0.1", "-e", "SHOW FRONTENDS"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    networks:
+      doris:
+        ipv4_address: 172.30.80.2
+
+  be:
+    image: apache/doris:be-4.1.4
+    hostname: be
+    environment:
+      FE_SERVERS: fe1:172.30.80.2:9010
+      BE_ADDR: 172.30.80.3:9050
+    ports:
+      - "8040:8040"
+    volumes:
+      - be-storage:/opt/apache-doris/be/storage
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8040/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    depends_on:
+      fe:
+        condition: service_healthy
+    networks:
+      doris:
+        ipv4_address: 172.30.80.3
+
+  console:
+    build: ./console
+    environment:
+      DORIS_HOST: fe
+      DORIS_PORT: 9030
+    ports:
+      - "8000:8000"
+    depends_on:
+      fe:
+        condition: service_healthy
+    networks:
+      - doris
+
+volumes:
+  fe-meta:
+  be-storage:
+
+networks:
+  doris:
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24

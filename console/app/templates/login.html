@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doris Console · Login</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <div class="brand"><span class="logo">D</span> Doris Console</div>
+    <p class="muted">使用 Doris 帳號登入。所有權限皆由 Doris 原生 RBAC 判定。</p>
+    <form method="post" action="/login">
+      <label>Username
+        <input name="username" value="{{ username or '' }}" autocomplete="username" required autofocus>
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="current-password">
+      </label>
+      {% if error %}<div class="alert denied">{{ error }}</div>{% endif %}
+      <button type="submit" class="primary">Login</button>
+    </form>
+    <div class="conn"><span class="dot"></span><code>{{ jdbc_url }}</code></div>
+  </main>
+</body>
+</html>

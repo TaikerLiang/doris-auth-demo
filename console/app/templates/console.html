@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Doris Console</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">D</span> Doris Console</div>
+    <div class="conn"><span class="dot"></span><code>{{ jdbc_url }}</code></div>
+    <div class="spacer"></div>
+    <span class="user-chip" id="user-chip">{{ username }}</span>
+    <form method="post" action="/logout"><button class="ghost">Logout</button></form>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section>
+        <h3>Identity</h3>
+        <div id="identity" class="muted">Loading…</div>
+      </section>
+      <section>
+        <h3>Privileges <small>SHOW GRANTS</small></h3>
+        <dl id="privileges" class="privs"></dl>
+      </section>
+      <section class="grow">
+        <h3>Databases <button class="icon" id="refresh-dbs" title="Refresh">↻</button></h3>
+        <ul id="db-tree" class="tree"></ul>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <div class="toolbar">
+        <label>Database
+          <select id="database"><option value="">(none)</option></select>
+        </label>
+        <div class="spacer"></div>
+        <span class="muted hint">Ctrl / ⌘ + Enter</span>
+        <button class="primary" id="run">Run</button>
+      </div>
+      <textarea id="sql" spellcheck="false">SHOW GRANTS</textarea>
+
+      <div id="status" class="status"></div>
+      <div id="result" class="result"></div>
+
+      <section class="history">
+        <h3>History</h3>
+        <ul id="history"></ul>
+      </section>
+    </main>
+  </div>
+  <script src="/static/console.js"></script>
+</body>
+</html>
