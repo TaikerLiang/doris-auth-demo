@@ -1,0 +1,447 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doris SA PoC 架構</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: #f4f6f7; --surface: #ffffff; --fg: #17202a; --muted: #59656f; --line: #d3d9de;
+    --edge: #46525c; --auth: #0f766e; --doris: #3446c9; --client: #a3530a; --infra: #6b737c;
+    --person: #1f3b5c; --boundary: #9aa5ae; --band: #eef1f3; --on-team: #ffffff; --callout: #e9f3f2;
+    --font-body: "IBM Plex Sans", "Noto Sans TC", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1418; --surface: #161d23; --fg: #e5eaee; --muted: #98a4ae; --line: #2a343d;
+      --edge: #a9b3bc; --auth: #3fd0bd; --doris: #8d9cff; --client: #f2a23c; --infra: #9aa2ab;
+      --person: #9dbbe0; --boundary: #4a5661; --band: #1c242b; --on-team: #0f1418; --callout: #13282a; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1418; --surface: #161d23; --fg: #e5eaee; --muted: #98a4ae; --line: #2a343d;
+    --edge: #a9b3bc; --auth: #3fd0bd; --doris: #8d9cff; --client: #f2a23c; --infra: #9aa2ab;
+    --person: #9dbbe0; --boundary: #4a5661; --band: #1c242b; --on-team: #0f1418; --callout: #13282a; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg); font: 15px/1.65 var(--font-body); margin: 0;
+    padding: 40px max(16px, env(safe-area-inset-right, 0px)) 64px max(16px, env(safe-area-inset-left, 0px));
+  }
+  main { max-width: 1180px; margin: 0 auto; display: grid; gap: 48px; }
+  .prose { max-width: 72ch; }
+  h1, h2 { text-wrap: balance; margin: 0; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 20px; font-weight: 600; }
+  p { margin: 0; }
+  .eyebrow { font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  header { display: grid; gap: 12px; }
+  header p { color: var(--muted); }
+  section { display: grid; gap: 16px; min-width: 0; }
+  code { font-family: var(--font-mono); font-size: 0.9em; }
+
+  .diagram { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .diagram svg { display: block; width: 100%; min-width: 900px; height: auto; }
+  svg text { font-family: var(--font-body); fill: var(--fg); }
+  svg .box { fill: var(--surface); stroke-width: 1.5; }
+  svg .boundary { fill: none; stroke: var(--boundary); stroke-width: 1.5; stroke-dasharray: 8 5; }
+  svg .band { fill: var(--band); }
+  svg .band-label { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; fill: var(--fg); }
+  svg .boundary-label { font-family: var(--font-mono); font-size: 12px; font-weight: 500; fill: var(--muted); }
+  svg .name { font-weight: 600; font-size: 16px; }
+  svg .kind { font-family: var(--font-mono); font-size: 11px; fill: var(--muted); }
+  svg .desc { font-size: 12.5px; fill: var(--muted); }
+  svg .strip-text { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.06em; fill: var(--on-team); }
+  svg .rel { stroke: var(--edge); stroke-width: 1.5; fill: none; }
+  svg .rel-label { font-size: 12px; fill: var(--fg); }
+  svg .rel-num { font-family: var(--font-mono); font-weight: 600; }
+  svg .label-bg { fill: var(--surface); }
+  svg .rel-sync { stroke: var(--auth); stroke-width: 2.5; fill: none; }
+  svg .arrowhead-sync { fill: var(--auth); }
+  svg .rel-label.sync { font-weight: 600; fill: var(--auth); }
+  svg .arrowhead { fill: var(--edge); }
+  .t-auth { stroke: var(--auth); } .f-auth { fill: var(--auth); }
+  .t-doris { stroke: var(--doris); } .f-doris { fill: var(--doris); }
+  .t-client { stroke: var(--client); } .f-client { fill: var(--client); }
+  .t-infra { stroke: var(--infra); } .f-infra { fill: var(--infra); }
+  .f-person { fill: var(--person); }
+  .t-tbd { stroke-dasharray: 6 4; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .swatch.auth { background: var(--auth); } .swatch.doris { background: var(--doris); }
+  .swatch.client { background: var(--client); } .swatch.infra { background: var(--infra); }
+  .swatch.person { background: var(--person); border-radius: 50%; }
+  .swatch.boundary { border: 1.5px dashed var(--boundary); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  tr:last-child td { border-bottom: 0; }
+  th { font-weight: 600; font-size: 12px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; }
+  td.num { font-family: var(--font-mono); font-weight: 600; white-space: nowrap; }
+  td.tech { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
+  td ul { margin: 0; padding-left: 18px; }
+  .team { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; }
+
+  .callout { background: var(--callout); border: 1px solid var(--line); border-left: 4px solid var(--auth); border-radius: 8px; padding: 16px 20px; display: grid; gap: 8px; }
+  .callout ul { margin: 0; padding-left: 20px; }
+  .scope { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .scope > div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+  .scope h3 { margin: 0; font-size: 15px; font-weight: 600; }
+  .scope ul { margin: 0; padding-left: 20px; color: var(--muted); }
+</style>
+
+
+
+
+<main>
+  <header>
+    <span class="eyebrow">C4 Model · Level 1 · System Context · PoC</span>
+    <h1>Doris SA PoC 架構</h1>
+    <p class="prose">依 issue #1，並比照 ADMC 的結構，分成三層：<strong>Console 層</strong>全公司一個，平台管理者在這裡設定 Doris host、每個 workspace 的 doris path 與 table 權限；<strong>Cluster 層</strong>每個 fab 一套、components 相同，DLH-Cluster API、Cluster DB、Doris 與 fab Redis 都在這一層；<strong>Client 層</strong>是 workspace 使用者與各 fab 的 DAO（邏輯分層，DAO 實際部署在各自的 fab）。權限經過兩段同步才會落到 Doris，兩段都用 outbox：<strong>Console ⇄ Cluster</strong> 把完整權限資料送進 Cluster DB，<strong>Cluster ⇄ Doris</strong> 再依 Cluster DB 套用到 Doris 並重建 Redis。</p>
+  </header>
+
+  <section aria-labelledby="ctx-title">
+    <h2 id="ctx-title">System Context</h2>
+    <div class="diagram">
+<svg viewBox="0 0 1280 870" role="img" aria-label="C4 System Context：Console 層同步 SA 與權限到 Fab A、Fab B 的 DLH-Cluster API，Cluster API 套用到 Doris 並寫入 fab Redis；Client 層的 DAO 讀本 fab Redis 後以 SA 身分查詢 Doris">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/></marker>
+<marker id="arrow-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead-sync"/></marker>
+</defs>
+
+<!-- Layer bands -->
+<rect x="10" y="10" width="1260" height="196" rx="14" class="band"/>
+<text x="1254" y="32" text-anchor="end" class="band-label">CONSOLE 層 · 全公司一個</text>
+<rect x="10" y="246" width="1260" height="404" rx="14" class="band"/>
+<text x="1254" y="268" text-anchor="end" class="band-label">CLUSTER 層 · 每個 fab 一套，components 相同</text>
+<rect x="10" y="690" width="1260" height="170" rx="14" class="band"/>
+<text x="1254" y="712" text-anchor="end" class="band-label">CLIENT 層</text>
+
+<!-- Console layer -->
+<line class="rel" x1="210" y1="120" x2="516" y2="120" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="317.0" y="100" width="92" height="20" rx="3"/><text class="rel-label" x="363" y="115" text-anchor="middle"><tspan class="rel-num">1</tspan> 設定權限</text>
+<line class="rel" x1="760" y1="84" x2="816" y2="84" marker-end="url(#arrow)"/>
+<line class="rel" x1="760" y1="156" x2="816" y2="156" marker-end="url(#arrow)"/>
+<g>
+<circle cx="130" cy="64" r="22" class="f-person"/>
+<rect x="50" y="90" width="160" height="80" rx="26" class="f-person"/>
+<text x="130" y="122" text-anchor="middle" class="name" style="fill: var(--on-team)">平台管理者</text>
+<text x="130" y="142" text-anchor="middle" class="desc" style="fill: var(--on-team); opacity: .85">[Person]</text>
+</g>
+<g>
+<rect x="520" y="44" width="240" height="140" rx="8" class="box t-auth"/>
+<rect x="520" y="44" width="240" height="24" rx="8" class="f-auth"/>
+<rect x="520" y="60" width="240" height="8" class="f-auth"/>
+<text x="532" y="61" class="strip-text">CONSOLE</text>
+<text x="640.0" y="94" text-anchor="middle" class="name">Console API</text>
+<text x="640.0" y="112" text-anchor="middle" class="kind">[Spring Boot 3.5 · Java 17]</text>
+<text x="640.0" y="134" text-anchor="middle" class="desc">權限正本、outbox relay、</text>
+<text x="640.0" y="152" text-anchor="middle" class="desc">trigger API；白名單 403</text>
+</g>
+<g>
+<rect x="820" y="54" width="220" height="60" rx="8" class="box t-auth"/>
+<text x="930" y="78" text-anchor="middle" class="name" style="font-size: 14px">Console DB</text>
+<text x="930" y="98" text-anchor="middle" class="kind">[MariaDB 10.6] 正本 + outbox</text>
+</g>
+<g>
+<rect x="820" y="126" width="220" height="60" rx="8" class="box t-auth"/>
+<text x="930" y="150" text-anchor="middle" class="name" style="font-size: 14px">Console Redis</text>
+<text x="930" y="170" text-anchor="middle" class="kind">[Redis 7] 快取、lock，不放憑證</text>
+</g>
+
+<!-- Sync 1 trunk -->
+<path class="rel-sync" d="M640,188 V226 H190 V312" marker-start="url(#arrow-sync)" marker-end="url(#arrow-sync)"/>
+<path class="rel-sync" d="M640,226 H820 V312" marker-end="url(#arrow-sync)"/>
+<rect class="label-bg" x="274.0" y="216" width="252" height="20" rx="3"/><text class="rel-label sync" x="400" y="231" text-anchor="middle"><tspan class="rel-num">2</tspan> 同步段 1：完整權限資料 ⇄ 已套用版本</text>
+
+<!-- Cluster layer -->
+<rect x="20" y="276" width="610" height="364" rx="12" class="boundary"/>
+<text x="614" y="298" text-anchor="end" class="boundary-label">Fab A（cluster_name = fab-a）</text>
+<line class="rel-sync" x1="120" y1="430" x2="120" y2="494" marker-start="url(#arrow-sync)" marker-end="url(#arrow-sync)"/>
+<rect class="label-bg" x="128" y="452" width="168" height="20" rx="3"/><text class="rel-label sync" x="132" y="467" text-anchor="start"><tspan class="rel-num">3</tspan> 同步段 2：套用 ⇄ 讀回</text>
+<path class="rel" d="M315,430 V463 H500 V496" marker-end="url(#arrow)"/>
+<line class="rel" x1="330" y1="371" x2="386" y2="371" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="347.0" y="453" width="120" height="20" rx="3"/><text class="rel-label" x="407" y="468" text-anchor="middle"><tspan class="rel-num">4</tspan> 寫憑證 + 版本號</text>
+<g>
+<rect x="50" y="316" width="280" height="110" rx="8" class="box t-infra"/>
+<rect x="50" y="316" width="280" height="24" rx="8" class="f-infra"/>
+<rect x="50" y="332" width="280" height="8" class="f-infra"/>
+<text x="62" y="333" class="strip-text">CLUSTER</text>
+<text x="190.0" y="366" text-anchor="middle" class="name">DLH-Cluster API</text>
+<text x="190.0" y="384" text-anchor="middle" class="kind">[Spring Boot · 新增 Doris 模組]</text>
+<text x="190.0" y="406" text-anchor="middle" class="desc">收權限資料存進 DB，套用到 Doris</text>
+</g>
+<g>
+<rect x="50" y="500" width="280" height="110" rx="8" class="box t-doris"/>
+<rect x="50" y="500" width="280" height="24" rx="8" class="f-doris"/>
+<rect x="50" y="516" width="280" height="8" class="f-doris"/>
+<text x="62" y="517" class="strip-text">DORIS</text>
+<text x="190.0" y="550" text-anchor="middle" class="name">Doris</text>
+<text x="190.0" y="568" text-anchor="middle" class="kind">[Apache Doris 4.1.4]</text>
+<text x="190.0" y="590" text-anchor="middle" class="desc">原生 RBAC 決定 SA 能看什麼</text>
+</g>
+<g>
+<rect x="390" y="500" width="220" height="110" rx="8" class="box t-infra"/>
+<rect x="390" y="500" width="220" height="24" rx="8" class="f-infra"/>
+<rect x="390" y="516" width="220" height="8" class="f-infra"/>
+<text x="402" y="517" class="strip-text">CLUSTER REDIS</text>
+<text x="500.0" y="550" text-anchor="middle" class="name">Fab Redis</text>
+<text x="500.0" y="568" text-anchor="middle" class="kind">[Redis 7 · cluster 層既有]</text>
+<text x="500.0" y="590" text-anchor="middle" class="desc">doris:&lt;instance&gt;:cred:&lt;sa_id&gt;</text>
+</g>
+<g>
+<rect x="390" y="316" width="220" height="110" rx="8" class="box t-infra"/>
+<rect x="390" y="316" width="220" height="24" rx="8" class="f-infra"/>
+<rect x="390" y="332" width="220" height="8" class="f-infra"/>
+<text x="402" y="333" class="strip-text">CLUSTER DB</text>
+<text x="500.0" y="366" text-anchor="middle" class="name">Cluster DB</text>
+<text x="500.0" y="384" text-anchor="middle" class="kind">[MariaDB · cluster 層既有]</text>
+<text x="500.0" y="406" text-anchor="middle" class="desc">本 fab 權限副本 + outbox</text>
+</g>
+<rect x="650" y="276" width="610" height="364" rx="12" class="boundary"/>
+<text x="1244" y="298" text-anchor="end" class="boundary-label">Fab B（cluster_name = fab-b）</text>
+<line class="rel-sync" x1="750" y1="430" x2="750" y2="494" marker-start="url(#arrow-sync)" marker-end="url(#arrow-sync)"/>
+<rect class="label-bg" x="758" y="452" width="168" height="20" rx="3"/><text class="rel-label sync" x="762" y="467" text-anchor="start"><tspan class="rel-num">3</tspan> 同步段 2：套用 ⇄ 讀回</text>
+<path class="rel" d="M945,430 V463 H1130 V496" marker-end="url(#arrow)"/>
+<line class="rel" x1="960" y1="371" x2="1016" y2="371" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="977.0" y="453" width="120" height="20" rx="3"/><text class="rel-label" x="1037" y="468" text-anchor="middle"><tspan class="rel-num">4</tspan> 寫憑證 + 版本號</text>
+<g>
+<rect x="680" y="316" width="280" height="110" rx="8" class="box t-infra"/>
+<rect x="680" y="316" width="280" height="24" rx="8" class="f-infra"/>
+<rect x="680" y="332" width="280" height="8" class="f-infra"/>
+<text x="692" y="333" class="strip-text">CLUSTER</text>
+<text x="820.0" y="366" text-anchor="middle" class="name">DLH-Cluster API</text>
+<text x="820.0" y="384" text-anchor="middle" class="kind">[Spring Boot · 新增 Doris 模組]</text>
+<text x="820.0" y="406" text-anchor="middle" class="desc">收權限資料存進 DB，套用到 Doris</text>
+</g>
+<g>
+<rect x="680" y="500" width="280" height="110" rx="8" class="box t-doris"/>
+<rect x="680" y="500" width="280" height="24" rx="8" class="f-doris"/>
+<rect x="680" y="516" width="280" height="8" class="f-doris"/>
+<text x="692" y="517" class="strip-text">DORIS</text>
+<text x="820.0" y="550" text-anchor="middle" class="name">Doris</text>
+<text x="820.0" y="568" text-anchor="middle" class="kind">[Apache Doris 4.1.4]</text>
+<text x="820.0" y="590" text-anchor="middle" class="desc">原生 RBAC 決定 SA 能看什麼</text>
+</g>
+<g>
+<rect x="1020" y="500" width="220" height="110" rx="8" class="box t-infra"/>
+<rect x="1020" y="500" width="220" height="24" rx="8" class="f-infra"/>
+<rect x="1020" y="516" width="220" height="8" class="f-infra"/>
+<text x="1032" y="517" class="strip-text">CLUSTER REDIS</text>
+<text x="1130.0" y="550" text-anchor="middle" class="name">Fab Redis</text>
+<text x="1130.0" y="568" text-anchor="middle" class="kind">[Redis 7 · cluster 層既有]</text>
+<text x="1130.0" y="590" text-anchor="middle" class="desc">doris:&lt;instance&gt;:cred:&lt;sa_id&gt;</text>
+</g>
+<g>
+<rect x="1020" y="316" width="220" height="110" rx="8" class="box t-infra"/>
+<rect x="1020" y="316" width="220" height="24" rx="8" class="f-infra"/>
+<rect x="1020" y="332" width="220" height="8" class="f-infra"/>
+<text x="1032" y="333" class="strip-text">CLUSTER DB</text>
+<text x="1130.0" y="366" text-anchor="middle" class="name">Cluster DB</text>
+<text x="1130.0" y="384" text-anchor="middle" class="kind">[MariaDB · cluster 層既有]</text>
+<text x="1130.0" y="406" text-anchor="middle" class="desc">本 fab 權限副本 + outbox</text>
+</g>
+
+<!-- Client layer -->
+<g>
+<circle cx="640" cy="738" r="20" class="f-person"/>
+<rect x="566" y="760" width="148" height="66" rx="24" class="f-person"/>
+<text x="640" y="789" text-anchor="middle" class="name" style="fill: var(--on-team)">Workspace 使用者</text>
+<text x="640" y="809" text-anchor="middle" class="desc" style="fill: var(--on-team); opacity: .85">[Person] 以 curl 模擬</text>
+</g>
+<line class="rel" x1="566" y1="793" x2="484" y2="793" marker-end="url(#arrow)"/>
+<line class="rel" x1="714" y1="793" x2="846" y2="793" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="734.0" y="773" width="92" height="20" rx="3"/><text class="rel-label" x="780" y="788" text-anchor="middle"><tspan class="rel-num">5</tspan> 查詢請求</text>
+<line class="rel" x1="290" y1="716" x2="290" y2="614" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="298" y="657" width="112" height="20" rx="3"/><text class="rel-label" x="302" y="672" text-anchor="start"><tspan class="rel-num">7</tspan> 以 SA 身分查詢</text>
+<line class="rel" x1="450" y1="716" x2="450" y2="614" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="458" y="657" width="72" height="20" rx="3"/><text class="rel-label" x="462" y="672" text-anchor="start"><tspan class="rel-num">6</tspan> 讀憑證</text>
+<g>
+<rect x="220" y="720" width="260" height="110" rx="8" class="box t-client"/>
+<rect x="220" y="720" width="260" height="24" rx="8" class="f-client"/>
+<rect x="220" y="736" width="260" height="8" class="f-client"/>
+<text x="232" y="737" class="strip-text">CLIENT</text>
+<text x="350.0" y="770" text-anchor="middle" class="name">DAO / Client（Fab A）</text>
+<text x="350.0" y="788" text-anchor="middle" class="kind">[Spring Boot · PoC]</text>
+<text x="350.0" y="810" text-anchor="middle" class="desc">部署在本 fab，以 SA 直連 Doris</text>
+</g>
+<line class="rel" x1="920" y1="716" x2="920" y2="614" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="928" y="657" width="112" height="20" rx="3"/><text class="rel-label" x="932" y="672" text-anchor="start"><tspan class="rel-num">7</tspan> 以 SA 身分查詢</text>
+<line class="rel" x1="1080" y1="716" x2="1080" y2="614" marker-end="url(#arrow)"/>
+<rect class="label-bg" x="1088" y="657" width="72" height="20" rx="3"/><text class="rel-label" x="1092" y="672" text-anchor="start"><tspan class="rel-num">6</tspan> 讀憑證</text>
+<g>
+<rect x="850" y="720" width="260" height="110" rx="8" class="box t-client"/>
+<rect x="850" y="720" width="260" height="24" rx="8" class="f-client"/>
+<rect x="850" y="736" width="260" height="8" class="f-client"/>
+<text x="862" y="737" class="strip-text">CLIENT</text>
+<text x="980.0" y="770" text-anchor="middle" class="name">DAO / Client（Fab B）</text>
+<text x="980.0" y="788" text-anchor="middle" class="kind">[Spring Boot · PoC]</text>
+<text x="980.0" y="810" text-anchor="middle" class="desc">部署在本 fab，以 SA 直連 Doris</text>
+</g>
+</svg>
+    </div>
+    <div class="legend">
+      <span><i class="swatch auth"></i>Console 層；粗線是權限同步段</span>
+      <span><i class="swatch infra"></i>DLH-Cluster 與它的 DB、Redis</span>
+      <span><i class="swatch doris"></i>Doris</span>
+      <span><i class="swatch client"></i>DAO / Client</span>
+      <span><i class="swatch person"></i>人員</span>
+      <span><i class="swatch boundary"></i>fab 部署邊界</span>
+    </div>
+  </section>
+
+  <section aria-labelledby="sync-title">
+    <h2 id="sync-title">權限同步的兩段</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>段</th><th>方向</th><th>內容</th><th>ADMC 可沿用的模式</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="num">1</td>
+            <td>Console → Cluster<br>Cluster → Console</td>
+            <td>權限變更與 <code>doris_sync_outbox</code> 事件在同一個 transaction 寫進 Console DB。relay 依 <code>cluster_name</code> 把該 fab 的完整權限資料連同 <code>desired_version</code> 送到該 fab 的 Cluster API；Console 的 periodic job 再查回各 fab 的 <code>applied_version</code> 與錯誤。觸發方式有三種，都只是寫一筆 outbox 事件：權限變更時自動、periodic job、trigger API。</td>
+            <td class="tech">Feign <code>ClusterApiClient</code>（每個 fab 一個 endpoint、Basic api-key）；relay 比照 AsyncRequestTask 的輪詢；Console 既有的 scheduler</td>
+          </tr>
+          <tr>
+            <td class="num">2</td>
+            <td>Cluster → Doris、Redis<br>Doris → Cluster</td>
+            <td>Cluster API 只接受比目前新的版本，在同一個 transaction 覆寫 Cluster DB 並寫入 <code>doris_apply_outbox</code> 事件。relay 讀 <code>SHOW GRANTS</code> 和期望狀態比對，只補差異（只動 Console 建立的 SA），再從 Cluster DB 重建本 fab 的 Redis，最後記錄 <code>applied_version</code>。Cluster 也定期重跑一次，修正 Doris 上被手動改掉的權限。</td>
+            <td class="tech">JDBC（MySQL protocol）；Cluster 既有的 Redisson client</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout prose">
+      <p><strong>待定：</strong>Cluster DB 怎麼保存 SA 密碼。Cluster 建 Redis 與下 <code>CREATE USER</code>／<code>ALTER USER</code> 都需要明文，而 issue 規定不能沿用 DLH-Cluster 那把 key。</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="role-title">
+    <h2 id="role-title">PoC 角色與技術選型</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>層</th><th>角色</th><th>職責</th><th>PoC 實作（比照 ADMC）</th></tr></thead>
+        <tbody>
+          <tr>
+            <td rowspan="4">Console<br>（全公司一個）</td>
+            <td><span class="team"><i class="swatch person"></i>平台管理者</span></td>
+            <td>登記 Doris host 與各 workspace 的 doris path，設定 table 權限；只有平台管理者能操作</td>
+            <td class="tech">Swagger UI（springdoc）或 curl</td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch auth"></i>Console API</span></td>
+            <td>權限正本、白名單檢查（403）、產生 SA 密碼並加密保存、透過 outbox 執行同步段 1、提供 trigger API</td>
+            <td class="tech"><ul>
+              <li>Spring Boot 3.5 / Java 17</li>
+              <li>Spring Data JPA + Liquibase</li>
+              <li><code>SecureRandom</code> 產生密碼，AES-GCM 加密（<code>AesCryptoUtils</code>）</li>
+              <li>Transactional outbox + relay（比照 AsyncRequestTask 的輪詢）</li>
+              <li>OpenFeign 呼叫各 fab 的 Cluster API</li>
+              <li>Scheduler 定期同步、查回 <code>applied_version</code></li>
+            </ul></td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch auth"></i>Console DB</span></td>
+            <td><code>doris_hosts</code>、<code>workspace_doris</code>（doris path，也是白名單）、<code>doris_sa_grants</code>、<code>doris_sync_outbox</code>、<code>doris_cluster_sync</code></td>
+            <td class="tech">MariaDB 10.6</td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch auth"></i>Console Redis</span></td>
+            <td>Console 內部快取與 lock，不存任何 SA 憑證</td>
+            <td class="tech">Redis 7</td>
+          </tr>
+          <tr>
+            <td rowspan="4">Cluster<br>（每個 fab 一套，<br>Fab A、Fab B 相同）</td>
+            <td><span class="team"><i class="swatch infra"></i>DLH-Cluster API</span></td>
+            <td>接收同步段 1 並存進 Cluster DB；透過 outbox 執行同步段 2；回報 <code>applied_version</code></td>
+            <td class="tech"><ul>
+              <li>Spring Boot（<code>dlh-api/cluster</code> 的結構）</li>
+              <li>Transactional outbox + relay</li>
+              <li>JDBC 連本 fab Doris，admin 帳號由 env var 提供</li>
+              <li>Redisson 連本 fab Redis，<code>StringCodec</code></li>
+            </ul></td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch infra"></i>Cluster DB</span></td>
+            <td>Console 推來的本 fab 資料（每次整份覆寫）、<code>doris_sync_state</code>、<code>doris_apply_outbox</code></td>
+            <td class="tech">MariaDB 10.6</td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch doris"></i>Doris</span></td>
+            <td>驗證 SA 帳密，並以原生 RBAC 判斷權限</td>
+            <td class="tech">Apache Doris 4.1.4 FE + BE</td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch infra"></i>Fab Redis</span></td>
+            <td>發憑證給本 fab 的 DAO；value 放 FE host、port、username、password；<code>doris:&lt;instance&gt;:cred:&lt;sa_id&gt;</code> 與 <code>cred_version</code> 不設 TTL</td>
+            <td class="tech">Redis 7</td>
+          </tr>
+          <tr>
+            <td rowspan="2">Client</td>
+            <td><span class="team"><i class="swatch person"></i>Workspace 使用者</span></td>
+            <td>透過 DAO 查詢資料</td>
+            <td class="tech">curl</td>
+          </tr>
+          <tr>
+            <td><span class="team"><i class="swatch client"></i>DAO / Client</span></td>
+            <td>部署在各自的 fab；只查本 fab Redis 取得 FE 位址與 SA 憑證，建 connection pool 後直連本 fab Doris；依 <code>cred_version</code> 發現憑證更新</td>
+            <td class="tech">Spring Boot + HikariCP + Redisson（<code>StringCodec</code>）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="rel-title">
+    <h2 id="rel-title">關係</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>來源 → 目標</th><th>內容</th><th>協定</th></tr></thead>
+        <tbody>
+          <tr><td class="num">1</td><td>平台管理者 → Console API</td><td>登記 Doris host 與各 workspace 的 doris path，設定 table 權限，或呼叫 trigger API 觸發同步</td><td class="tech">HTTP</td></tr>
+          <tr><td class="num">2</td><td>Console API ⇄ 各 fab 的 Cluster API</td><td>同步段 1：送出該 fab 的完整權限資料與 <code>desired_version</code>；查回 <code>applied_version</code> 與錯誤</td><td class="tech">HTTP（Feign）</td></tr>
+          <tr><td class="num">3</td><td>Cluster API ⇄ 本 fab Doris</td><td>同步段 2：比對 <code>SHOW GRANTS</code> 與 Cluster DB 的期望狀態，只補差異</td><td class="tech">JDBC（MySQL protocol）</td></tr>
+          <tr><td class="num">4</td><td>Cluster API → 本 fab Redis</td><td>從 Cluster DB 重建：先 SET <code>cred:&lt;sa_id&gt;</code>，成功後再更新 <code>cred_version</code></td><td class="tech">RESP</td></tr>
+          <tr><td class="num">5</td><td>Workspace 使用者 → DAO</td><td>送出查詢請求</td><td class="tech">HTTP</td></tr>
+          <tr><td class="num">6</td><td>DAO → 本 fab Redis</td><td>讀 <code>cred:&lt;sa_id&gt;</code>，並依 <code>cred_version</code> 判斷是否要重讀</td><td class="tech">RESP</td></tr>
+          <tr><td class="num">7</td><td>DAO → 本 fab Doris</td><td>以 SA 身分連線查詢；DAO 不做權限判斷</td><td class="tech">JDBC（MySQL protocol）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="scope-title">
+    <h2 id="scope-title">PoC 範圍</h2>
+    <div class="scope">
+      <div>
+        <h3>要驗證（依優先順序）</h3>
+        <ul>
+          <li>Console 上設定的權限，經同步段 1、2 正確落到 Doris</li>
+          <li>三種觸發都會同步：權限變更時自動、periodic job、trigger API</li>
+          <li>任一段失敗後，outbox 重試讓 Console DB、Cluster DB 與 Doris 最終一致</li>
+          <li>白名單：workspace 在該 fab 沒有 doris path 時，寫入回 403；還有授權時不能清空 doris path</li>
+          <li>Console 依 <code>cluster_name</code> 呼叫對的 fab Cluster API</li>
+          <li>每次套用都從 Cluster DB 重建 Redis；DAO 從 Redis 取得 FE 位址與憑證連 Doris，RBAC 生效</li>
+          <li>DROP USER／REVOKE 後，已建立的連線會不會被踢掉</li>
+        </ul>
+      </div>
+      <div>
+        <h3>不在 PoC</h3>
+        <ul>
+          <li>ADMC 既有 Console / Cluster 程式的修改（PoC 用獨立的精簡版）</li>
+          <li>User action log（沿用 ADMC 既有機制）</li>
+          <li>K8s Secret 與 Vault（以 env var 模擬）</li>
+          <li>真實的跨 fab 網路</li>
+          <li>Redis 的 eviction、persistence、ACL（Infra 負責）</li>
+          <li>金鑰輪替流程（只保留 <code>key_version</code> 欄位）</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
