@@ -5,7 +5,7 @@ Demo：透過 FastAPI console 整合 Apache Doris 4.1.4 原生 RBAC。
 Console 以登入者自己的 Doris 帳號連線（MySQL 協定，即 JDBC `jdbc:mysql://fe:9030` 使用的協定），
 所以所有授權判斷都由 Doris 執行，console 本身不做權限控管。
 
-設計文件：[docs/design.md](docs/design.md)、C4 System Context：[docs/c4-context.html](docs/c4-context.html)
+C4 System Context：[docs/c4-context-poc.html](docs/c4-context-poc.html)（[English](docs/c4-context-poc-en.html)）、Doris 4.1.4 實測結果：[docs/doris-4.1.4-findings.md](docs/doris-4.1.4-findings.md)
 
 ## 查詢流程
 
