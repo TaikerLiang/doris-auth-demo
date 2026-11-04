@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: doris-console
+  datasource:
+    url: ${CONSOLE_DB_URL:jdbc:mariadb://localhost:3306/console}
+    username: ${CONSOLE_DB_USER:console}
+    password: ${CONSOLE_DB_PASSWORD:console}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+server:
+  servlet:
+    session:
+      tracking-modes: cookie # keep ;jsessionid= out of redirect URLs (flash messages use the session)
+
+console:
+  credential:
+    # AES-256 key (base64) for SA password_enc. Injected from a K8s Secret in real deployments.
+    key: ${CONSOLE_CRED_KEY}
+    key-version: ${CONSOLE_CRED_KEY_VERSION:1}

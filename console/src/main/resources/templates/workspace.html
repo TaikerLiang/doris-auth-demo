@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:replace="~{fragments :: head(${workspace})}"></head>
+<body>
+<header th:replace="~{fragments :: nav('workspaces')}"></header>
+<main>
+  <div th:replace="~{fragments :: flash}"></div>
+  <section class="page-head">
+    <a class="crumb" th:href="@{/workspaces}">← Workspaces</a>
+    <h1 th:text="${workspace}">workspace</h1>
+    <p>授權只寫進 Console DB，並產生該 fab 的同步事件；之後由同步流程套用到 Doris。</p>
+  </section>
+
+  <div class="fabs">
+    <section class="card" th:each="fab : ${fabs}">
+      <div class="card-head">
+        <span class="fab" th:text="${fab.clusterName}">fab-a</span>
+        <span class="status on" th:if="${fab.path != null}">已開通</span>
+        <span class="status" th:if="${fab.path == null}">未開通</span>
+      </div>
+
+      <!-- No doris path: open one on a Doris host of this fab -->
+      <div class="card-body" th:if="${fab.path == null}">
+        <p class="muted" th:if="${#lists.isEmpty(fab.hostChoices)}">
+          這個 fab 還沒有登記 Doris host，請先到 <a th:href="@{/hosts}">Doris Hosts</a> 登記。
+        </p>
+        <form class="inline" method="post" th:unless="${#lists.isEmpty(fab.hostChoices)}"
+              th:action="@{/workspaces/{w}/fabs/{c}/path(w=${workspace},c=${fab.clusterName})}">
+          <label>Doris host
+            <select name="hostId">
+              <option th:each="h : ${fab.hostChoices}" th:value="${h.id}"
+                      th:text="${h.instanceName} + ' (' + ${h.feHost} + ':' + ${h.queryPort} + ')'">doris</option>
+            </select>
+          </label>
+          <button type="submit">開通 doris path</button>
+        </form>
+        <p class="hint">開通時會建立 SA，並產生隨機密碼加密保存。</p>
+      </div>
+
+      <th:block th:if="${fab.path != null}">
+        <dl class="facts">
+          <dt>Doris instance</dt><dd th:text="${fab.host?.instanceName}">doris</dd>
+          <dt>FE endpoint</dt><dd><code th:text="${fab.host?.feHost} + ':' + ${fab.host?.queryPort}">fe:9030</code></dd>
+          <dt>SA</dt><dd><code th:text="${fab.path.username}">sa</code></dd>
+          <dt>sa_id</dt><dd><code class="small" th:text="${fab.path.id}">id</code></dd>
+          <dt>密碼</dt><dd th:text="'已加密（key v' + ${fab.path.keyVersion} + '）'">已加密</dd>
+        </dl>
+
+        <table class="grants">
+          <thead>
+          <tr><th>Catalog</th><th>Database</th><th>Table</th><th>權限</th><th></th></tr>
+          </thead>
+          <tbody>
+          <tr th:each="g : ${fab.grants}">
+            <td th:text="${g.catalogName}">internal</td>
+            <td th:text="${g.databaseName}">olist</td>
+            <td th:text="${g.tableName}">orders</td>
+            <td><span class="priv" th:text="${g.privilege}">SELECT_PRIV</span></td>
+            <td class="actions">
+              <form method="post"
+                    th:action="@{/workspaces/{w}/fabs/{c}/grants/{id}/delete(w=${workspace},c=${fab.clusterName},id=${g.id})}">
+                <button class="link danger" type="submit">移除</button>
+              </form>
+            </td>
+          </tr>
+          <tr th:if="${#lists.isEmpty(fab.grants)}">
+            <td colspan="5" class="muted">尚無授權</td>
+          </tr>
+          </tbody>
+        </table>
+
+        <form class="grant-form" method="post"
+              th:action="@{/workspaces/{w}/fabs/{c}/grants(w=${workspace},c=${fab.clusterName})}">
+          <input name="catalog" value="internal" required aria-label="catalog">
+          <input name="database" placeholder="database" required aria-label="database">
+          <input name="table" placeholder="table 或 *" required aria-label="table">
+          <select name="privilege" aria-label="privilege">
+            <option th:each="p : ${privileges}" th:value="${p}" th:text="${p}" th:selected="${p == 'SELECT_PRIV'}">SELECT_PRIV</option>
+          </select>
+          <button type="submit">授權</button>
+        </form>
+
+        <div class="card-foot">
+          <form method="post" th:action="@{/workspaces/{w}/fabs/{c}/path/delete(w=${workspace},c=${fab.clusterName})}"
+                onsubmit="return confirm('確定要清空這個 fab 的 doris path？SA 會被移除。')">
+            <button class="link danger" type="submit" th:disabled="${!#lists.isEmpty(fab.grants)}"
+                    th:title="${#lists.isEmpty(fab.grants)} ? '' : '還有授權，不能清空 doris path'">清空 doris path</button>
+          </form>
+        </div>
+      </th:block>
+    </section>
+  </div>
+</main>
+</body>
+</html>

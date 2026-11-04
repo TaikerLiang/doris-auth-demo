@@ -1,16 +1,17 @@
 # doris-auth-demo
 
-Demo：透過 FastAPI console 整合 Apache Doris 4.1.4 原生 RBAC。
+Doris SA PoC：平台管理者在 Console 設定各 workspace 的 Doris 權限，再同步到各 fab 的 Doris，
+查詢時由 Apache Doris 4.1.4 的原生 RBAC 判斷權限。
 
-Console 以登入者自己的 Doris 帳號連線（MySQL 協定，即 JDBC `jdbc:mysql://fe:9030` 使用的協定），
-所以所有授權判斷都由 Doris 執行，console 本身不做權限控管。
+目前完成：兩座 Doris（Fab A / Fab B）與 Olist 資料、Spring Boot Console（權限正本 + outbox）。
+尚未實作：outbox relay、DLH-Cluster API、fab Redis、DAO，所以 Console 上的權限**還不會**套用到 Doris。
 
 設計文件：[docs/design.md](docs/design.md)、C4 System Context：[docs/c4-context.html](docs/c4-context.html)
 
 ## 查詢流程
 
 ```text
- Console / JDBC Client
+ DAO / JDBC Client
           │
           │ 1. 以使用者帳密連線（MySQL 協定）
           │ 2. 送出 SQL
@@ -29,7 +30,7 @@ Console 以登入者自己的 Doris 帳號連線（MySQL 協定，即 JDBC `jdbc
  └────────┬────────┘
           │ 6. 結果回傳 FE，再由 FE 回給 Client
           ▼
- Console / JDBC Client
+ DAO / JDBC Client
 ```
 
 ## 資料集
@@ -55,16 +56,34 @@ docker compose logs -f loader   # 等它印完兩座 Doris 的匯入筆數後結
 | Doris FE Web UI | http://localhost:8030 | http://localhost:8031 |
 | Doris MySQL 協定 | `mysql -uroot -h127.0.0.1 -P9030` | `mysql -uroot -h127.0.0.1 -P9031` |
 | Doris BE | http://localhost:8040 | http://localhost:8041 |
-| Console | http://localhost:8000（連 Fab A） | — |
 
 預設帳號 `root`，密碼空白。要重新匯入資料：`docker compose run --rm loader`。
 
+Console：http://localhost:8080（Console DB 是 compose 裡的 `console-db`，MariaDB 10.6）。
+
 ## Console 功能
 
-- 以 Doris 帳號登入（帳密由 Doris 驗證）
-- 側欄顯示 `CURRENT_USER()`、角色，以及 `SHOW GRANTS` 的權限明細
-- 資料庫/資料表樹（只會列出該使用者看得到的物件）
-- SQL 編輯器；被 RBAC 拒絕的語句會以 **Denied by Doris RBAC** 標示
+Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 transaction 裡遞增該 fab 的
+`desired_version`，並寫入一筆 `doris_sync_outbox` 事件。
+
+- **Workspaces**：每個 workspace 在各 fab 的 doris path 與授權筆數。
+- **Workspace 詳細頁**：開通或清空 doris path，新增或移除 table 權限（`catalog.database.table` + 權限）。
+  開通時會產生 32 字元的隨機 SA 密碼，以 AES-256-GCM 加密存入 `password_enc`。
+- **Doris Hosts**：登記或刪除各 fab 的 Doris instance。
+- **同步狀態**：各 fab 的 desired / applied version 與 outbox 事件。
+
+規則（issue #1 的定案）：
+
+| 情境 | 結果 |
+| --- | --- |
+| workspace 在該 fab 沒有 doris path 時授權或移除授權 | 403 |
+| doris path 還有授權時清空 | 409 |
+| 還有 doris path 指向的 Doris host 被刪除 | 409 |
+| doris path 指向別的 fab 的 Doris host | 400 |
+| catalog / database / table 不是單純識別字（table 可用 `*`） | 400 |
+
+`clusters` 與 `workspaces` 在 ADMC 裡本來就有，PoC 用 Liquibase 建立精簡版，並預先放入
+`fab-a`、`fab-b`、三個 workspace，以及 compose 裡的兩座 Doris host。
 
 ## 範例：建立受限使用者
 
@@ -84,10 +103,11 @@ CREATE USER 'alice'@'%' IDENTIFIED BY 'alice123' DEFAULT ROLE 'sales_reader';
 
 ## 本機開發 console
 
+需要 JDK 17 以上與 Maven。測試使用 H2，不需要 MariaDB：
+
 ```bash
 cd console
-uv sync
-DORIS_HOST=127.0.0.1 uv run uvicorn app.main:app --reload
+mvn test
 ```
 
 ## 清除資料

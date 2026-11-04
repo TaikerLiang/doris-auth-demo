@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:replace="~{fragments :: head('Doris Hosts')}"></head>
+<body>
+<header th:replace="~{fragments :: nav('hosts')}"></header>
+<main>
+  <div th:replace="~{fragments :: flash}"></div>
+  <section class="page-head">
+    <h1>Doris Hosts</h1>
+    <p>每座 Doris 屬於一個 fab。endpoint（host:port）建立後不能修改；改 endpoint 就登記成新的 instance。</p>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+      <tr><th>Fab</th><th>Instance</th><th>FE endpoint</th><th>HTTP</th><th>secret_ref</th><th>Doris path</th><th></th></tr>
+      </thead>
+      <tbody>
+      <tr th:each="h : ${hosts}" th:with="used=${pathCounts.getOrDefault(h.id, 0L)}">
+        <td><span class="fab" th:text="${h.clusterName}">fab-a</span></td>
+        <td class="strong" th:text="${h.instanceName}">doris</td>
+        <td><code th:text="${h.feHost} + ':' + ${h.queryPort}">fe:9030</code></td>
+        <td><code th:text="${h.httpPort}">8030</code></td>
+        <td><code th:text="${h.secretRef}">REF</code></td>
+        <td th:text="${used} + ' 個 workspace'">0</td>
+        <td class="actions">
+          <form method="post" th:action="@{/hosts/{id}/delete(id=${h.id})}"
+                onsubmit="return confirm('確定要刪除這座 Doris host？')">
+            <button class="link danger" type="submit" th:disabled="${used > 0}"
+                    th:title="${used > 0} ? '還有 workspace 的 doris path 指向它' : ''">刪除</button>
+          </form>
+        </td>
+      </tr>
+      <tr th:if="${#lists.isEmpty(hosts)}"><td colspan="7" class="muted">尚未登記任何 Doris host</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <section class="card">
+    <div class="card-head"><h2>登記 Doris host</h2></div>
+    <form class="form-grid" method="post" th:action="@{/hosts}">
+      <label>Fab
+        <select name="clusterName">
+          <option th:each="c : ${clusters}" th:value="${c.logicClusterName}" th:text="${c.logicClusterName}">fab-a</option>
+        </select>
+      </label>
+      <label>instance_name<input name="instanceName" placeholder="doris-fab-a-2" required pattern="[a-z0-9-]{1,64}"></label>
+      <label>fe_host<input name="feHost" placeholder="fe-a" required></label>
+      <label>query_port<input name="queryPort" type="number" value="9030" required></label>
+      <label>http_port<input name="httpPort" type="number" value="8030" required></label>
+      <label>secret_ref<input name="secretRef" placeholder="DORIS_FAB_A_ADMIN" required></label>
+      <div><button type="submit">登記</button></div>
+    </form>
+    <p class="hint">secret_ref 只存平台 admin 帳號所在的 K8s Secret／env var 名稱，由該 fab 的 Cluster API 解析。</p>
+  </section>
+</main>
+</body>
+</html>

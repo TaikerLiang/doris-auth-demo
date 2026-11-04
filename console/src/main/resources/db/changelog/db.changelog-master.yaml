@@ -1,0 +1,119 @@
+databaseChangeLog:
+  # clusters / workspaces already exist in ADMC; the PoC keeps only the columns it needs.
+  - changeSet:
+      id: 1-stand-in-tables
+      author: poc
+      changes:
+        - createTable:
+            tableName: clusters
+            columns:
+              - column: { name: logic_cluster_name, type: VARCHAR(16), constraints: { primaryKey: true } }
+        - createTable:
+            tableName: workspaces
+            columns:
+              - column: { name: workspace_name, type: VARCHAR(64), constraints: { primaryKey: true } }
+
+  - changeSet:
+      id: 2-doris-tables
+      author: poc
+      changes:
+        - createTable:
+            tableName: doris_hosts
+            columns:
+              - column: { name: id, type: CHAR(36), constraints: { primaryKey: true } }
+              - column: { name: cluster_name, type: VARCHAR(16), constraints: { nullable: false, foreignKeyName: fk_host_cluster, references: clusters(logic_cluster_name) } }
+              - column: { name: instance_name, type: VARCHAR(64), constraints: { nullable: false, unique: true, uniqueConstraintName: uk_host_instance } }
+              - column: { name: fe_host, type: VARCHAR(255), constraints: { nullable: false } }
+              - column: { name: query_port, type: INT, constraints: { nullable: false } }
+              - column: { name: http_port, type: INT, constraints: { nullable: false } }
+              - column: { name: secret_ref, type: VARCHAR(128), constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: doris_hosts
+            columnNames: fe_host, query_port
+            constraintName: uk_host_endpoint
+
+        - createTable:
+            tableName: workspace_doris
+            columns:
+              - column: { name: id, type: CHAR(36), constraints: { primaryKey: true } }
+              - column: { name: workspace_name, type: VARCHAR(64), constraints: { nullable: false, foreignKeyName: fk_wd_workspace, references: workspaces(workspace_name) } }
+              - column: { name: cluster_name, type: VARCHAR(16), constraints: { nullable: false, foreignKeyName: fk_wd_cluster, references: clusters(logic_cluster_name) } }
+              - column: { name: doris_host_id, type: CHAR(36), constraints: { nullable: false, foreignKeyName: fk_wd_host, references: doris_hosts(id) } }
+              - column: { name: username, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: password_enc, type: TEXT, constraints: { nullable: false } }
+              - column: { name: key_version, type: INT, constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: workspace_doris
+            columnNames: workspace_name, cluster_name
+            constraintName: uk_wd_workspace_cluster
+        - addUniqueConstraint:
+            tableName: workspace_doris
+            columnNames: doris_host_id, username
+            constraintName: uk_wd_host_username
+
+        # catalog / database / table are reserved words in MariaDB, hence the *_name columns.
+        - createTable:
+            tableName: doris_sa_grants
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column: { name: workspace_doris_id, type: CHAR(36), constraints: { nullable: false, foreignKeyName: fk_grant_wd, references: workspace_doris(id) } }
+              - column: { name: catalog_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: database_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: table_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: privilege, type: VARCHAR(32), constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: doris_sa_grants
+            columnNames: workspace_doris_id, catalog_name, database_name, table_name, privilege
+            constraintName: uk_grant
+
+        - createTable:
+            tableName: doris_sync_outbox
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column: { name: cluster_name, type: VARCHAR(16), constraints: { nullable: false } }
+              - column: { name: desired_version, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: status, type: VARCHAR(16), constraints: { nullable: false } }
+              - column: { name: retry_count, type: INT, constraints: { nullable: false } }
+              - column: { name: created_at, type: DATETIME, constraints: { nullable: false } }
+
+        - createTable:
+            tableName: doris_cluster_sync
+            columns:
+              - column: { name: cluster_name, type: VARCHAR(16), constraints: { primaryKey: true, foreignKeyName: fk_sync_cluster, references: clusters(logic_cluster_name) } }
+              - column: { name: desired_version, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: applied_version, type: BIGINT }
+              - column: { name: last_error, type: TEXT }
+              - column: { name: updated_at, type: DATETIME, constraints: { nullable: false } }
+
+  # Matches the two Doris clusters in docker-compose.yml.
+  - changeSet:
+      id: 3-demo-data
+      author: poc
+      changes:
+        - insert: { tableName: clusters, columns: [ { column: { name: logic_cluster_name, value: fab-a } } ] }
+        - insert: { tableName: clusters, columns: [ { column: { name: logic_cluster_name, value: fab-b } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: sales-analytics } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: logistics } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: marketing } } ] }
+        - insert:
+            tableName: doris_hosts
+            columns:
+              - column: { name: id, value: 7d1f3a52-0a5e-4c1a-9a43-6f2b1c0e0a01 }
+              - column: { name: cluster_name, value: fab-a }
+              - column: { name: instance_name, value: doris-fab-a }
+              - column: { name: fe_host, value: fe-a }
+              - column: { name: query_port, valueNumeric: 9030 }
+              - column: { name: http_port, valueNumeric: 8030 }
+              - column: { name: secret_ref, value: DORIS_FAB_A_ADMIN }
+        - insert:
+            tableName: doris_hosts
+            columns:
+              - column: { name: id, value: 7d1f3a52-0a5e-4c1a-9a43-6f2b1c0e0b01 }
+              - column: { name: cluster_name, value: fab-b }
+              - column: { name: instance_name, value: doris-fab-b }
+              - column: { name: fe_host, value: fe-b }
+              - column: { name: query_port, valueNumeric: 9030 }
+              - column: { name: http_port, valueNumeric: 8030 }
+              - column: { name: secret_ref, value: DORIS_FAB_B_ADMIN }
+        - insert: { tableName: doris_cluster_sync, columns: [ { column: { name: cluster_name, value: fab-a } }, { column: { name: desired_version, valueNumeric: 0 } }, { column: { name: updated_at, valueComputed: CURRENT_TIMESTAMP } } ] }
+        - insert: { tableName: doris_cluster_sync, columns: [ { column: { name: cluster_name, value: fab-b } }, { column: { name: desired_version, valueNumeric: 0 } }, { column: { name: updated_at, valueComputed: CURRENT_TIMESTAMP } } ] }
