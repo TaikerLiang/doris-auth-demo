@@ -1,12 +1,32 @@
+# Two independent Doris clusters, one per fab (Fab A / Fab B in docs/c4-context-poc.html).
+# They share nothing: each FE has its own metadata, users and grants.
+
+x-fe: &fe
+  image: apache/doris:fe-4.1.4
+  # Default fe.conf reserves an 8 GB heap (-Xms8192m), which starves BE inside Docker Desktop.
+  entrypoint:
+    - bash
+    - -c
+    - sed -i 's/-Xmx8192m -Xms8192m/-Xmx1g -Xms1g/' /opt/apache-doris/fe/conf/fe.conf && exec bash init_fe.sh
+  healthcheck:
+    # SHOW FRONTENDS is answered by FE alone; SELECT needs a BE in 4.x
+    test: ["CMD", "mysql", "-uroot", "-P9030", "-h127.0.0.1", "-e", "SHOW FRONTENDS"]
+    interval: 5s
+    timeout: 5s
+    retries: 60
+
+x-be: &be
+  image: apache/doris:be-4.1.4
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://127.0.0.1:8040/api/health"]
+    interval: 5s
+    timeout: 5s
+    retries: 60
+
 services:
-  fe:
-    image: apache/doris:fe-4.1.4
-    hostname: fe
-    # Default fe.conf reserves an 8 GB heap (-Xms8192m), which starves BE inside Docker Desktop.
-    entrypoint:
-      - bash
-      - -c
-      - sed -i 's/-Xmx8192m -Xms8192m/-Xmx2g -Xms2g/' /opt/apache-doris/fe/conf/fe.conf && exec bash init_fe.sh
+  fe-a:
+    <<: *fe
+    hostname: fe-a
     environment:
       FE_SERVERS: fe1:172.30.80.2:9010
       FE_ID: 1
@@ -14,58 +34,97 @@ services:
       - "8030:8030" # FE web UI / HTTP API
       - "9030:9030" # MySQL protocol (JDBC: jdbc:mysql://localhost:9030)
     volumes:
-      - fe-meta:/opt/apache-doris/fe/doris-meta
-    healthcheck:
-      # SHOW FRONTENDS is answered by FE alone; SELECT needs a BE in 4.x
-      test: ["CMD", "mysql", "-uroot", "-P9030", "-h127.0.0.1", "-e", "SHOW FRONTENDS"]
-      interval: 5s
-      timeout: 5s
-      retries: 60
+      - fe-a-meta:/opt/apache-doris/fe/doris-meta
     networks:
       doris:
         ipv4_address: 172.30.80.2
 
-  be:
-    image: apache/doris:be-4.1.4
-    hostname: be
+  be-a:
+    <<: *be
+    hostname: be-a
     environment:
       FE_SERVERS: fe1:172.30.80.2:9010
       BE_ADDR: 172.30.80.3:9050
     ports:
       - "8040:8040"
     volumes:
-      - be-storage:/opt/apache-doris/be/storage
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8040/api/health"]
-      interval: 5s
-      timeout: 5s
-      retries: 60
+      - be-a-storage:/opt/apache-doris/be/storage
     depends_on:
-      fe:
+      fe-a:
         condition: service_healthy
     networks:
       doris:
         ipv4_address: 172.30.80.3
 
+  fe-b:
+    <<: *fe
+    hostname: fe-b
+    environment:
+      FE_SERVERS: fe1:172.30.80.4:9010
+      FE_ID: 1
+    ports:
+      - "8031:8030"
+      - "9031:9030"
+    volumes:
+      - fe-b-meta:/opt/apache-doris/fe/doris-meta
+    networks:
+      doris:
+        ipv4_address: 172.30.80.4
+
+  be-b:
+    <<: *be
+    hostname: be-b
+    environment:
+      FE_SERVERS: fe1:172.30.80.4:9010
+      BE_ADDR: 172.30.80.5:9050
+    ports:
+      - "8041:8040"
+    volumes:
+      - be-b-storage:/opt/apache-doris/be/storage
+    depends_on:
+      fe-b:
+        condition: service_healthy
+    networks:
+      doris:
+        ipv4_address: 172.30.80.5
+
+  # One-shot: loads the Olist CSVs from ./data/olist into both clusters.
+  loader:
+    image: apache/doris:fe-4.1.4 # reused for its mysql client and curl
+    entrypoint: ["bash", "/scripts/load-olist.sh", "fe-a", "fe-b"]
+    volumes:
+      - ./loader:/scripts:ro
+      - ./data/olist:/data:ro
+    depends_on:
+      be-a:
+        condition: service_healthy
+      be-b:
+        condition: service_healthy
+    networks:
+      - doris
+
   console:
     build: ./console
     environment:
-      DORIS_HOST: fe
+      DORIS_HOST: fe-a
       DORIS_PORT: 9030
     ports:
       - "8000:8000"
     depends_on:
-      fe:
+      fe-a:
         condition: service_healthy
     networks:
       - doris
 
 volumes:
-  fe-meta:
-  be-storage:
+  fe-a-meta:
+  be-a-storage:
+  fe-b-meta:
+  be-b-storage:
 
 networks:
   doris:
     ipam:
       config:
         - subnet: 172.30.80.0/24
+          ip_range: 172.30.80.128/25 # dynamic IPs (console, loader) stay clear of the fixed .2-.5
