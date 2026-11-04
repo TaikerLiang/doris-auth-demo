@@ -32,19 +32,32 @@ Console 以登入者自己的 Doris 帳號連線（MySQL 協定，即 JDBC `jdbc
  Console / JDBC Client
 ```
 
+## 資料集
+
+使用 Kaggle 的 [Olist Brazilian E-Commerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)（CC BY-NC-SA 4.0）。
+下載需要登入 Kaggle，所以請手動下載 zip，解壓縮到 `data/olist/`（已列入 `.gitignore`）。
+
+loader 會在兩座 Doris 上各建立 `olist` database，並以 Stream Load 匯入其中 6 張表：
+`customers`、`orders`、`order_items`、`order_payments`、`products`、`sellers`（略過 `geolocation`、`order_reviews` 和分類翻譯表）。
+各表都使用 UNIQUE KEY，所以重跑 loader 不會產生重複資料。
+
 ## 啟動
 
 ```bash
 docker compose up -d --build --wait
+docker compose logs -f loader   # 等它印完兩座 Doris 的匯入筆數後結束
 ```
 
-| 服務 | 位址 |
-| --- | --- |
-| Console | http://localhost:8000 |
-| Doris FE Web UI | http://localhost:8030 |
-| Doris MySQL 協定 | `localhost:9030`（`mysql -uroot -h127.0.0.1 -P9030`） |
+兩套 Doris cluster 互相獨立，對應 C4 圖中的 Fab A / Fab B，各自有自己的 metadata、帳號與權限。
 
-預設帳號 `root`，密碼空白。
+| 服務 | Fab A | Fab B |
+| --- | --- | --- |
+| Doris FE Web UI | http://localhost:8030 | http://localhost:8031 |
+| Doris MySQL 協定 | `mysql -uroot -h127.0.0.1 -P9030` | `mysql -uroot -h127.0.0.1 -P9031` |
+| Doris BE | http://localhost:8040 | http://localhost:8041 |
+| Console | http://localhost:8000（連 Fab A） | — |
+
+預設帳號 `root`，密碼空白。要重新匯入資料：`docker compose run --rm loader`。
 
 ## Console 功能
 
