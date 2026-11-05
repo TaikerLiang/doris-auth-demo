@@ -1,12 +1,13 @@
-FROM python:3.12-slim
-COPY --from=ghcr.io/astral-sh/uv:0.8.22 /uv /uvx /bin/
+FROM maven:3.9.11-eclipse-temurin-17 AS build
+WORKDIR /src
+COPY pom.xml .
+COPY src ./src
+# Cache ~/.m2 across builds and retry downloads; Docker Desktop's link to Maven Central drops TLS handshakes now and then.
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -q -B package -DskipTests -Daether.connector.http.retryHandler.count=5
 
+FROM eclipse-temurin:17-jre
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PATH="/app/.venv/bin:$PATH"
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev
-
-COPY app ./app
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+COPY --from=build /src/target/console-*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]

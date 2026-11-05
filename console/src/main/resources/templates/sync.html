@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:replace="~{fragments :: head('同步狀態')}"></head>
+<body>
+<header th:replace="~{fragments :: nav('sync')}"></header>
+<main>
+  <div th:replace="~{fragments :: flash}"></div>
+  <section class="page-head">
+    <h1>同步狀態</h1>
+    <p>每次變更都會遞增該 fab 的 desired_version，並寫入一筆 outbox 事件。
+      relay 與 Cluster API 還沒實作，所以事件目前會停在 <code>PENDING</code>。</p>
+  </section>
+
+  <div class="stats">
+    <div class="stat" th:each="s : ${syncs}">
+      <span class="fab" th:text="${s.clusterName}">fab-a</span>
+      <div class="versions">
+        <div><span class="label">desired</span><span class="value" th:text="${s.desiredVersion}">0</span></div>
+        <div><span class="label">applied</span><span class="value" th:text="${s.appliedVersion} ?: '—'">—</span></div>
+      </div>
+      <div class="sub" th:text="${s.lastError} ?: '沒有錯誤'">沒有錯誤</div>
+    </div>
+  </div>
+
+  <h2>Outbox 事件（最近 50 筆）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Fab</th><th>desired_version</th><th>狀態</th><th>重試</th><th>建立時間</th></tr></thead>
+      <tbody>
+      <tr th:each="e : ${events}">
+        <td th:text="${e.id}">1</td>
+        <td><span class="fab" th:text="${e.clusterName}">fab-a</span></td>
+        <td th:text="${e.desiredVersion}">1</td>
+        <td><span class="status" th:text="${e.status}">PENDING</span></td>
+        <td th:text="${e.retryCount}">0</td>
+        <td th:text="${#temporals.format(e.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+      </tr>
+      <tr th:if="${#lists.isEmpty(events)}"><td colspan="6" class="muted">尚無事件</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>
