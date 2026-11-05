@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:fragment="head(title)">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title th:text="${title} + ' · Doris SA Console'">Doris SA Console</title>
+  <link rel="stylesheet" th:href="@{/style.css}">
+</head>
+<body>
+<header th:fragment="nav(active)" class="topbar">
+  <a class="brand" th:href="@{/workspaces}">Doris SA Console <span>PoC</span></a>
+  <nav>
+    <a th:href="@{/workspaces}" th:classappend="${active == 'workspaces'} ? 'active'">Workspaces</a>
+    <a th:href="@{/hosts}" th:classappend="${active == 'hosts'} ? 'active'">Doris Hosts</a>
+    <a th:href="@{/sync}" th:classappend="${active == 'sync'} ? 'active'">同步狀態</a>
+  </nav>
+</header>
+
+<div th:fragment="flash">
+  <div class="flash error" th:if="${error}" th:text="${error}"></div>
+  <div class="flash notice" th:if="${notice}" th:text="${notice}"></div>
+</div>
+</body>
+</html>

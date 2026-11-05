@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:replace="~{fragments :: head('Workspaces')}"></head>
+<body>
+<header th:replace="~{fragments :: nav('workspaces')}"></header>
+<main>
+  <div th:replace="~{fragments :: flash}"></div>
+  <section class="page-head">
+    <h1>Workspaces</h1>
+    <p>每個 workspace 在每個 fab 最多一個 doris path。沒有 doris path 的 fab 不能授權。</p>
+  </section>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+      <tr>
+        <th>Workspace</th>
+        <th th:each="c : ${clusters}"><span class="fab" th:text="${c}">fab-a</span></th>
+      </tr>
+      </thead>
+      <tbody>
+      <tr th:each="row : ${rows}">
+        <td><a class="strong" th:href="@{/workspaces/{w}(w=${row.workspaceName})}" th:text="${row.workspaceName}">ws</a></td>
+        <td th:each="fab : ${row.fabs}">
+          <th:block th:if="${fab.path != null}">
+            <code th:text="${fab.path.username}">sa_ws</code>
+            <span class="muted">@ <span th:text="${fab.host?.instanceName}">doris</span></span>
+            <div class="sub" th:text="${#lists.size(fab.grants)} + ' 筆授權'">0 筆授權</div>
+          </th:block>
+          <span class="muted" th:if="${fab.path == null}">未開通</span>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+</body>
+</html>

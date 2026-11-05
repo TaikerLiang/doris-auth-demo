@@ -103,16 +103,44 @@ services:
     networks:
       - doris
 
+  # Console DB (MariaDB 10.6, as in ADMC): permission source of truth + doris_sync_outbox
+  console-db:
+    image: mariadb:10.6.19
+    environment:
+      MARIADB_DATABASE: console
+      MARIADB_USER: console
+      MARIADB_PASSWORD: console
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - console-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - doris
+
+  # Spring Boot console: edits Doris permissions; never connects to Doris itself
   console:
     build: ./console
     environment:
-      DORIS_HOST: fe-a
-      DORIS_PORT: 9030
+      CONSOLE_DB_URL: jdbc:mariadb://console-db:3306/console
+      CONSOLE_DB_USER: console
+      CONSOLE_DB_PASSWORD: console
+      CONSOLE_CRED_KEY: Zm9yLWRlbW8tb25seS1kby1ub3QtdXNlLWluLXByb2Q= # PoC only, 32 bytes
+      CONSOLE_CRED_KEY_VERSION: 1
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
-      fe-a:
+      console-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 180s # Spring Boot starts slowly when Docker Desktop is busy
     networks:
       - doris
 
@@ -121,10 +149,11 @@ volumes:
   be-a-storage:
   fe-b-meta:
   be-b-storage:
+  console-db:
 
 networks:
   doris:
     ipam:
       config:
         - subnet: 172.30.80.0/24
-          ip_range: 172.30.80.128/25 # dynamic IPs (console, loader) stay clear of the fixed .2-.5
+          ip_range: 172.30.80.128/25 # dynamic IPs (console, console-db, loader) stay clear of the fixed .2-.5
