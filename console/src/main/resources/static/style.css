@@ -68,6 +68,11 @@ a.fab:hover { text-decoration: none; filter: brightness(0.95); }
 }
 .status { font: 500 12px var(--mono); color: var(--muted); }
 .status.on { color: var(--accent); }
+.status.warn { color: var(--danger); font-weight: 600; }
+.error-box {
+  margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--danger-soft); color: var(--danger);
+  font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .priv { font: 500 12px var(--mono); }
 
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

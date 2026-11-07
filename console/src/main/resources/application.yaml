@@ -11,8 +11,19 @@ spring:
       ddl-auto: validate
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+  task:
+    scheduling:
+      pool:
+        size: 5
+      thread-name-prefix: scheduler-
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 server:
+  shutdown: graceful # keep it shorter than the container's stop grace period (compose: 60s)
   servlet:
     session:
       tracking-modes: cookie # keep ;jsessionid= out of redirect URLs (flash messages use the session)
@@ -22,3 +33,22 @@ console:
     # AES-256 key (base64) for SA password_enc. Injected from a K8s Secret in real deployments.
     key: ${CONSOLE_CRED_KEY}
     key-version: ${CONSOLE_CRED_KEY_VERSION:1}
+  redis:
+    address: ${CONSOLE_REDIS_URL:redis://localhost:6379} # scheduler locks only
+  # Each fab's Cluster API, e.g. fab-a: http://cluster-api-a:8080. compose sets them via SPRING_APPLICATION_JSON.
+  clusters:
+    endpoints: {}
+
+# Jobs are BaseScheduler beans named like these keys. Spring cron has six fields (seconds first).
+scheduler:
+  default-zone: Asia/Taipei
+  jobs:
+    outbox-relay:
+      enabled: true
+      cron: "*/5 * * * * *"
+    periodic-sync:
+      enabled: true
+      cron: "0 */30 * * * *"
+    status-poll:
+      enabled: true
+      cron: "*/30 * * * * *"

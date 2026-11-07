@@ -117,3 +117,18 @@ databaseChangeLog:
               - column: { name: secret_ref, value: DORIS_FAB_B_ADMIN }
         - insert: { tableName: doris_cluster_sync, columns: [ { column: { name: cluster_name, value: fab-a } }, { column: { name: desired_version, valueNumeric: 0 } }, { column: { name: updated_at, valueComputed: CURRENT_TIMESTAMP } } ] }
         - insert: { tableName: doris_cluster_sync, columns: [ { column: { name: cluster_name, value: fab-b } }, { column: { name: desired_version, valueNumeric: 0 } }, { column: { name: updated_at, valueComputed: CURRENT_TIMESTAMP } } ] }
+
+  - changeSet:
+      id: 4-relay-columns
+      author: poc
+      changes:
+        # Backoff for the outbox relay: a failed send is retried no earlier than this
+        - addColumn:
+            tableName: doris_sync_outbox
+            columns:
+              - column: { name: next_attempt_at, type: DATETIME }
+        # Statements the fab's last reconcile needed to repair drift, as reported by its Cluster API
+        - addColumn:
+            tableName: doris_cluster_sync
+            columns:
+              - column: { name: last_drift, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
