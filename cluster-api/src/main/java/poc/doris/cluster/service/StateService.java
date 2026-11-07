@@ -34,6 +34,8 @@ public class StateService {
 
     // Everything below ends up inside SQL statements or Redis keys, so only plain values are accepted.
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9_]{1,64}");
+    // Console builds "sa_" + workspace name (up to 64), and its username column is VARCHAR(128)
+    private static final Pattern USERNAME = Pattern.compile("[A-Za-z0-9_]{1,128}");
     private static final Pattern INSTANCE_NAME = Pattern.compile("[a-z0-9-]{1,64}");
     private static final Pattern HOSTNAME = Pattern.compile("[A-Za-z0-9.-]{1,255}");
     private static final Pattern ENV_NAME = Pattern.compile("[A-Z0-9_]{1,128}");
@@ -162,7 +164,7 @@ public class StateService {
         Set<String> saIds = s.paths().stream().map(Snapshot.Path::saId).collect(Collectors.toSet());
         for (Snapshot.Path p : s.paths()) {
             require(hostById.containsKey(p.hostId()), p.username() + " 指向不存在的 host");
-            require(IDENTIFIER.matcher(p.username()).matches(), "username 不合法：" + p.username());
+            require(USERNAME.matcher(p.username()).matches(), "username 不合法：" + p.username());
             require(PASSWORD.matcher(p.password()).matches(), p.username() + " 的密碼格式不合法");
         }
         for (Snapshot.Grant g : s.grants()) {
