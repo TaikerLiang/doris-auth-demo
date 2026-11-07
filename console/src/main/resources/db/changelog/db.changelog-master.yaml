@@ -92,9 +92,9 @@ databaseChangeLog:
       changes:
         - insert: { tableName: clusters, columns: [ { column: { name: logic_cluster_name, value: fab-a } } ] }
         - insert: { tableName: clusters, columns: [ { column: { name: logic_cluster_name, value: fab-b } } ] }
-        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: sales-analytics } } ] }
-        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: logistics } } ] }
-        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: marketing } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: workspace-a } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: workspace-b } } ] }
+        - insert: { tableName: workspaces, columns: [ { column: { name: workspace_name, value: workspace-c } } ] }
         - insert:
             tableName: doris_hosts
             columns:

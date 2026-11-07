@@ -3,6 +3,7 @@ package poc.doris.console;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,9 +34,9 @@ class PermissionServiceTest {
 
     @Test
     void openPathCreatesSaWithEncryptedPasswordAndOutboxEvent() {
-        WorkspaceDoris path = service.openPath("sales-analytics", "fab-a", FAB_A_HOST);
+        WorkspaceDoris path = service.openPath("workspace-a", "fab-a", FAB_A_HOST);
 
-        assertThat(path.getUsername()).isEqualTo("sa_sales_analytics");
+        assertThat(path.getUsername()).isEqualTo("sa_workspace_a");
         assertThat(path.getKeyVersion()).isEqualTo(1);
         assertThat(cipher.decrypt(path.getPasswordEnc())).hasSize(32).isNotEqualTo(path.getPasswordEnc());
         assertThat(outbox.findTop50ByOrderByIdDesc()).singleElement().satisfies(e -> {
@@ -47,50 +48,77 @@ class PermissionServiceTest {
 
     @Test
     void openPathRejectsHostFromAnotherFab() {
-        assertStatus(() -> service.openPath("sales-analytics", "fab-a", FAB_B_HOST), HttpStatus.BAD_REQUEST);
+        assertStatus(() -> service.openPath("workspace-a", "fab-a", FAB_B_HOST), HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void grantWithoutDorisPathIsForbidden() {
-        assertStatus(() -> service.addGrant("logistics", "fab-a", "internal", "olist", "orders", "SELECT_PRIV"),
+        assertStatus(() -> service.addGrant("workspace-b", "fab-a", "internal", "olist", "orders", "SELECT_PRIV"),
                 HttpStatus.FORBIDDEN);
         assertThat(outbox.count()).isZero();
     }
 
     @Test
     void pathWithGrantsCannotBeCleared() {
-        service.openPath("logistics", "fab-b", FAB_B_HOST);
-        long grantId = service.addGrant("logistics", "fab-b", "internal", "olist", "orders", "SELECT_PRIV").getId();
+        service.openPath("workspace-b", "fab-b", FAB_B_HOST);
+        long grantId = service.addGrant("workspace-b", "fab-b", "internal", "olist", "orders", "SELECT_PRIV").getId();
 
-        assertStatus(() -> service.clearPath("logistics", "fab-b"), HttpStatus.CONFLICT);
+        assertStatus(() -> service.clearPath("workspace-b", "fab-b"), HttpStatus.CONFLICT);
 
-        service.removeGrant("logistics", "fab-b", grantId);
-        service.clearPath("logistics", "fab-b");
+        service.removeGrant("workspace-b", "fab-b", grantId);
+        service.clearPath("workspace-b", "fab-b");
     }
 
     @Test
     void rejectsDuplicateGrantAndUnsafeNames() {
-        service.openPath("marketing", "fab-a", FAB_A_HOST);
-        service.addGrant("marketing", "fab-a", "internal", "olist", "*", "SELECT_PRIV");
+        service.openPath("workspace-c", "fab-a", FAB_A_HOST);
+        service.addGrant("workspace-c", "fab-a", "internal", "olist", "*", "SELECT_PRIV");
 
-        assertStatus(() -> service.addGrant("marketing", "fab-a", "internal", "olist", "*", "SELECT_PRIV"),
+        assertStatus(() -> service.addGrant("workspace-c", "fab-a", "internal", "olist", "*", "SELECT_PRIV"),
                 HttpStatus.CONFLICT);
-        assertStatus(() -> service.addGrant("marketing", "fab-a", "internal", "olist`; DROP", "x", "SELECT_PRIV"),
+        assertStatus(() -> service.addGrant("workspace-c", "fab-a", "internal", "olist`; DROP", "x", "SELECT_PRIV"),
                 HttpStatus.BAD_REQUEST);
-        assertStatus(() -> service.addGrant("marketing", "fab-a", "internal", "olist", "orders", "ADMIN_PRIV"),
+        assertStatus(() -> service.addGrant("workspace-c", "fab-a", "internal", "olist", "orders", "ADMIN_PRIV"),
                 HttpStatus.BAD_REQUEST);
     }
 
     @Test
     void everyChangeBumpsOnlyItsOwnFabVersion() {
-        service.openPath("marketing", "fab-a", FAB_A_HOST);
-        service.addGrant("marketing", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
-        service.addGrant("marketing", "fab-a", "internal", "olist", "customers", "SELECT_PRIV");
+        service.openPath("workspace-c", "fab-a", FAB_A_HOST);
+        service.addGrant("workspace-c", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
+        service.addGrant("workspace-c", "fab-a", "internal", "olist", "customers", "SELECT_PRIV");
 
         assertThat(syncs.findById("fab-a").orElseThrow().getDesiredVersion()).isEqualTo(3);
         assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isZero();
         assertThat(outbox.findTop50ByOrderByIdDesc()).extracting(DorisSyncOutbox::getDesiredVersion)
                 .containsExactly(3L, 2L, 1L);
+    }
+
+    @Test
+    void copyGrantsAddsOnlyMissingGrantsAndBumpsOnlyChangedFabs() {
+        service.openPath("workspace-a", "fab-a", FAB_A_HOST);
+        service.openPath("workspace-a", "fab-b", FAB_B_HOST);
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "customers", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-b", "internal", "olist", "orders", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-b", "internal", "olist", "sellers", "LOAD_PRIV");
+
+        assertThat(service.copyGrants("workspace-a", "fab-a", List.of("fab-b"))).isEqualTo(1);
+        assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isEqualTo(4);
+
+        // Nothing left to copy: no new grants and no new sync event
+        assertThat(service.copyGrants("workspace-a", "fab-a", List.of("fab-b"))).isZero();
+        assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isEqualTo(4);
+        assertThat(syncs.findById("fab-a").orElseThrow().getDesiredVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void copyGrantsToFabWithoutDorisPathIsForbidden() {
+        service.openPath("workspace-a", "fab-a", FAB_A_HOST);
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
+
+        assertStatus(() -> service.copyGrants("workspace-a", "fab-a", List.of("fab-b")), HttpStatus.FORBIDDEN);
+        assertStatus(() -> service.copyGrants("workspace-a", "fab-a", List.of("fab-a")), HttpStatus.BAD_REQUEST);
     }
 
     private static void assertStatus(Runnable action, HttpStatus status) {

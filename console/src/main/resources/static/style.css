@@ -34,6 +34,9 @@ h2 { margin: 8px 0 0; font-size: 16px; }
 .topbar nav { display: flex; gap: 4px; }
 .topbar nav a { padding: 6px 12px; border-radius: 6px; color: var(--muted); }
 .topbar nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.ws-search { margin-left: auto; }
+.ws-search input { width: 220px; }
+@media (max-width: 480px) { .ws-search { margin-left: 0; width: 100%; } .ws-search input { width: 100%; } }
 
 main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; display: grid; gap: 24px; }
 .page-head { display: grid; gap: 6px; }
@@ -51,27 +54,34 @@ tr:last-child td { border-bottom: 0; }
 th { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.03em; }
 td.actions { text-align: right; white-space: nowrap; }
 .strong { font-weight: 600; }
+.nowrap { white-space: nowrap; }
+.scroll { overflow-x: auto; }
 .muted { color: var(--muted); }
 .sub { font-size: 12px; color: var(--muted); }
 .hint { margin: 0; font-size: 12px; color: var(--muted); }
 
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+a.fab:hover { text-decoration: none; filter: brightness(0.95); }
 .fab {
-  display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--chip-fg);
+  display: inline-block; white-space: nowrap; padding: 1px 8px; border-radius: 999px; background: var(--chip); color: var(--chip-fg);
   font: 600 12px/1.6 var(--mono);
 }
 .status { font: 500 12px var(--mono); color: var(--muted); }
 .status.on { color: var(--accent); }
 .priv { font: 500 12px var(--mono); }
 
-.fabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
-@media (max-width: 480px) { .fabs { grid-template-columns: 1fr; } }
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.filters input[type=search] { flex: 1 1 220px; max-width: 320px; }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px 12px; }
+label.check { display: flex; align-items: center; gap: 6px; font: 500 13px var(--mono); color: var(--fg); }
+.copy-form { display: grid; gap: 12px; }
+.row { display: flex; align-items: center; gap: 16px; }
 .card {
   background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   display: grid; gap: 16px; padding: 16px 20px; align-content: start; min-width: 0;
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.card-body { display: grid; gap: 10px; }
-.card-foot { border-top: 1px solid var(--line); padding-top: 12px; display: flex; justify-content: flex-end; }
+.page-foot { display: flex; justify-content: flex-end; }
 .card table th, .card table td { padding: 8px 6px; }
 
 .facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
