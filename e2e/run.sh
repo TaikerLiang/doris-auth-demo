@@ -146,9 +146,12 @@ cleanup() {
 # ---------- setup ----------
 
 echo "e2e against compose project $PROJECT (wait up to ${WAIT}s per step)"
-cleanup # leftovers of an aborted run
+CURRENT=setup; scenario "準備：清掉上次中斷留下的資料，兩個 fab 先同步一次"
+cleanup
+# A fresh deployment has no outbox event yet (Console at version 0, Cluster applied null), so ask for one
 for fab in fab-a fab-b; do
-  until synced "$fab" 2>/dev/null; do sleep 2; done
+  post "/api/sync/$fab" >/dev/null
+  wait_for "$fab 初始同步" synced "$fab" || { echo "初始同步失敗，停止"; exit 1; }
 done
 console_sql "delete from workspaces where workspace_name in ('e2e-a', 'e2e-b');
   insert into workspaces values ('e2e-a'), ('e2e-b')"
