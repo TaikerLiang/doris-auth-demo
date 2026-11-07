@@ -72,6 +72,8 @@ class WorkspaceController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
         model.addAttribute("workspace", workspace);
+        model.addAttribute("workspaceNames",
+                workspaces.findAllByOrderByWorkspaceName().stream().map(w -> w.getWorkspaceName()).toList());
         model.addAttribute("fabs", panels(workspace, clusterNames()));
         model.addAttribute("privileges", PermissionService.PRIVILEGES.stream().sorted().toList());
         return "workspace";

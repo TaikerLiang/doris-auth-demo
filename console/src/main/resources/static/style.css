@@ -39,6 +39,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 32px 16px 64px; display: grid
 .page-head { display: grid; gap: 6px; }
 .page-head p { margin: 0; color: var(--muted); max-width: 75ch; }
 .crumb { font-size: 13px; }
+.picker { justify-self: start; }
 
 .flash { padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line); }
 .flash.error { background: var(--danger-soft); color: var(--danger); border-color: transparent; font-weight: 500; }

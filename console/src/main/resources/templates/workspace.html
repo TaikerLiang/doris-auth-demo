@@ -8,6 +8,12 @@
   <section class="page-head">
     <a class="crumb" th:href="@{/workspaces}">← Workspaces</a>
     <h1 th:text="${workspace}">workspace</h1>
+    <label class="picker">切換 workspace
+      <select onchange="location.href = this.value">
+        <option th:each="n : ${workspaceNames}" th:value="@{/workspaces/{w}(w=${n})}" th:text="${n}"
+                th:selected="${n == workspace}">ws</option>
+      </select>
+    </label>
     <p>授權只寫進 Console DB，並產生該 fab 的同步事件；之後由同步流程套用到 Doris。</p>
   </section>
 
