@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface DorisSyncOutboxRepository extends JpaRepository<DorisSyncOutbox, Long> {
 
     List<DorisSyncOutbox> findTop50ByOrderByIdDesc();
+
+    List<DorisSyncOutbox> findByStatusOrderById(String status);
 }

@@ -11,3 +11,13 @@ console:
   credential:
     key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
     key-version: 1
+
+scheduler:
+  default-zone: Asia/Taipei
+  jobs:
+    outbox-relay:
+      enabled: false
+    periodic-sync:
+      enabled: false
+    status-poll:
+      enabled: false

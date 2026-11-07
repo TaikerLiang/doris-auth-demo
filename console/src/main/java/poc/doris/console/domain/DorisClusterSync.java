@@ -17,6 +17,7 @@ public class DorisClusterSync {
     private Long appliedVersion;
     @Column(columnDefinition = "text")
     private String lastError;
+    private int lastDrift;
     private LocalDateTime updatedAt;
 
     protected DorisClusterSync() {
@@ -33,6 +34,14 @@ public class DorisClusterSync {
         return desiredVersion;
     }
 
+    /** What the fab's Cluster API reported: the version applied to Doris, its last error and drift. */
+    public void reported(Long appliedVersion, String lastError, int lastDrift) {
+        this.appliedVersion = appliedVersion;
+        this.lastError = lastError;
+        this.lastDrift = lastDrift;
+        updatedAt = LocalDateTime.now();
+    }
+
     public String getClusterName() {
         return clusterName;
     }
@@ -47,6 +56,10 @@ public class DorisClusterSync {
 
     public String getLastError() {
         return lastError;
+    }
+
+    public int getLastDrift() {
+        return lastDrift;
     }
 
     public LocalDateTime getUpdatedAt() {

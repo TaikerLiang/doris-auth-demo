@@ -3,10 +3,9 @@
 Doris SA PoC：平台管理者在 Console 設定各 workspace 的 Doris 權限，再同步到各 fab 的 Doris，
 查詢時由 Apache Doris 4.1.4 的原生 RBAC 判斷權限。
 
-目前完成：兩座 Doris（Fab A / Fab B）與 Olist 資料、Spring Boot Console（權限正本 + outbox）、
-各 fab 的 DLH-Cluster API（同步段 2：比對並套用到 Doris、寫 fab Redis）。
-尚未實作：Console → Cluster API 的 relay（#11）、DAO，所以 Console 上的權限**還不會**自動送到 Cluster API；
-目前要用 curl 直接呼叫 Cluster API，之後由它的排程套用到 Doris。
+目前完成：兩座 Doris（Fab A / Fab B）與 Olist 資料、Spring Boot Console（權限正本 + outbox + relay）、
+各 fab 的 DLH-Cluster API（比對並套用到 Doris、寫 fab Redis）。在 Console 改權限，約 10 秒內就會生效到 Doris。
+尚未實作：DAO（從 fab Redis 取憑證連 Doris 的 client）、e2e 驗證腳本（#12）。
 
 設計文件：[docs/design.md](docs/design.md)、C4 System Context：[docs/c4-context.html](docs/c4-context.html)
 
@@ -68,7 +67,16 @@ Console：http://localhost:8080（Console DB 是 compose 裡的 `console-db`，M
 ## Console 功能
 
 Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 transaction 裡遞增該 fab 的
-`desired_version`，並寫入一筆 `doris_sync_outbox` 事件。
+`desired_version`，並寫入一筆 `doris_sync_outbox` 事件；排程再把事件送到該 fab 的 Cluster API（同步段 1）：
+
+| Job | 頻率 | 作用 |
+| --- | --- | --- |
+| `outbox-relay` | 每 5 秒 | 有待送事件的 fab，送出它目前的完整狀態（只送最新版本）。失敗時從 5 秒開始指數退避，最多 5 分鐘 |
+| `periodic-sync` | 每 30 分 | 每個 fab 補一筆事件，讓漏送或 Cluster DB 被清空的 fab 追回完整狀態 |
+| `status-poll` | 每 30 秒 | 讀回各 fab 的 applied version、錯誤與漂移數，顯示在同步狀態頁 |
+
+各 fab 的 Cluster API endpoint 設在 `console.clusters.endpoints`（compose 用 `SPRING_APPLICATION_JSON` 設定）。
+Console 的排程鎖放在自己的 `console-redis`，那裡不放任何 SA 憑證。
 
 - **Workspaces**：每個 workspace 一列，顯示已開通的 fab 與授權總數。可以搜尋名稱、篩選「有開通某個 fab」的 workspace。
 - **Workspace 頁**：列出這個 workspace 已開通的 fab；在下方選 fab 的 Doris host 開通新的 doris path（只列出還沒開通的 fab）。
@@ -76,7 +84,8 @@ Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 
 - **Fab 頁**（workspace × fab）：新增或移除 table 權限（`catalog.database.table` + 權限）、清空 doris path，
   以及把授權複製到其他已開通的 fab。複製只新增目標 fab 缺少的授權，不刪除目標 fab 原有的授權。
 - **Doris Hosts**：登記或刪除各 fab 的 Doris instance。
-- **同步狀態**：各 fab 的 desired / applied version 與 outbox 事件。
+- **同步狀態**：各 fab 的 desired / applied version（不一致就標「落後」）、待送事件與重試、最後的錯誤、
+  漂移數，以及「立即同步」按鈕（也可以 `POST /api/sync/{fab}`）。applied 才代表已經套用到 Doris。
 
 上方導覽列的「跳到 workspace」可以直接輸入名稱切換 workspace。
 
@@ -95,7 +104,7 @@ Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 
 
 ## Cluster API（同步段 2）
 
-每個 fab 一套：`cluster-api-a`（http://localhost:8091）管 fe-a 與 `redis-a`，`cluster-api-b`（http://localhost:8092）
+Console 的 relay 會自動呼叫；下面的 curl 只在單獨測試 Cluster API 時用得到。每個 fab 一套：`cluster-api-a`（http://localhost:8091）管 fe-a 與 `redis-a`，`cluster-api-b`（http://localhost:8092）
 管 fe-b 與 `redis-b`。Cluster DB 是 `cluster-db`，每個 fab 一個 schema。
 
 | API | 作用 |

@@ -7,35 +7,56 @@
   <div th:replace="~{fragments :: flash}"></div>
   <section class="page-head">
     <h1>同步狀態</h1>
-    <p>每次變更都會遞增該 fab 的 desired_version，並寫入一筆 outbox 事件。
-      relay 與 Cluster API 還沒實作，所以事件目前會停在 <code>PENDING</code>。</p>
+    <p>每次變更都會遞增該 fab 的 desired_version 並寫入 outbox；relay 把完整狀態送到該 fab 的 Cluster API，
+      applied 是 Cluster 回報<strong>已套用到 Doris</strong> 的版本。outbox 的 <code>SENT</code> 只代表 Cluster 收到了。</p>
   </section>
 
   <div class="stats">
-    <div class="stat" th:each="s : ${syncs}">
-      <span class="fab" th:text="${s.clusterName}">fab-a</span>
-      <div class="versions">
-        <div><span class="label">desired</span><span class="value" th:text="${s.desiredVersion}">0</span></div>
-        <div><span class="label">applied</span><span class="value" th:text="${s.appliedVersion} ?: '—'">—</span></div>
+    <div class="stat" th:each="f : ${fabs}">
+      <div class="card-head">
+        <span class="fab" th:text="${f.sync.clusterName}">fab-a</span>
+        <span class="status on" th:unless="${f.behind}">已同步</span>
+        <span class="status warn" th:if="${f.behind}">落後</span>
       </div>
-      <div class="sub" th:text="${s.lastError} ?: '沒有錯誤'">沒有錯誤</div>
+      <div class="versions">
+        <div><span class="label">desired</span><span class="value" th:text="${f.sync.desiredVersion}">0</span></div>
+        <div><span class="label">applied</span><span class="value" th:text="${f.sync.appliedVersion} ?: '—'">—</span></div>
+      </div>
+      <dl class="facts">
+        <dt>Cluster API</dt>
+        <dd><code th:text="${f.endpoint} ?: '未設定，不會同步'">endpoint</code></dd>
+        <dt>outbox</dt>
+        <dd th:if="${f.pending == 0}">沒有待送事件</dd>
+        <dd th:if="${f.pending > 0}">
+          <span th:text="${f.pending} + ' 筆待送，最早 ' + ${#temporals.format(f.oldestPending, 'HH:mm:ss')}">1 筆</span>
+          <div class="sub" th:if="${f.maxRetry > 0}"
+               th:text="'已重試 ' + ${f.maxRetry} + ' 次，下次 ' + ${#temporals.format(f.nextAttempt, 'HH:mm:ss')}">重試</div>
+        </dd>
+        <dt>漂移</dt>
+        <dd th:text="${f.sync.lastDrift} + ' 筆（最近一次 reconcile 修正）'">0</dd>
+      </dl>
+      <pre class="error-box" th:if="${f.sync.lastError}" th:text="${f.sync.lastError}">error</pre>
+      <form method="post" th:action="@{/sync/{c}/trigger(c=${f.sync.clusterName})}">
+        <button type="submit" th:disabled="${f.endpoint == null}">立即同步</button>
+      </form>
     </div>
   </div>
 
   <h2>Outbox 事件（最近 50 筆）</h2>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>#</th><th>Fab</th><th>desired_version</th><th>狀態</th><th>重試</th><th>建立時間</th></tr></thead>
+      <thead class="nowrap"><tr><th>#</th><th>Fab</th><th>desired_version</th><th>狀態</th><th>重試</th><th>下次重試</th><th>建立時間</th></tr></thead>
       <tbody>
       <tr th:each="e : ${events}">
         <td th:text="${e.id}">1</td>
         <td><span class="fab" th:text="${e.clusterName}">fab-a</span></td>
         <td th:text="${e.desiredVersion}">1</td>
-        <td><span class="status" th:text="${e.status}">PENDING</span></td>
+        <td><span class="status" th:classappend="${e.status == 'SENT'} ? 'on'" th:text="${e.status}">PENDING</span></td>
         <td th:text="${e.retryCount}">0</td>
-        <td th:text="${#temporals.format(e.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
+        <td class="nowrap" th:text="${e.nextAttemptAt != null and e.status == 'PENDING'} ? ${#temporals.format(e.nextAttemptAt, 'HH:mm:ss')} : '—'">—</td>
+        <td class="nowrap" th:text="${#temporals.format(e.createdAt, 'yyyy-MM-dd HH:mm:ss')}">time</td>
       </tr>
-      <tr th:if="${#lists.isEmpty(events)}"><td colspan="6" class="muted">尚無事件</td></tr>
+      <tr th:if="${#lists.isEmpty(events)}"><td colspan="7" class="muted">尚無事件</td></tr>
       </tbody>
     </table>
   </div>

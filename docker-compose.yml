@@ -121,7 +121,13 @@ services:
     networks:
       - doris
 
-  # Spring Boot console: edits Doris permissions; never connects to Doris itself
+  # Console's own Redis: scheduler locks only, never SA credentials
+  console-redis:
+    image: redis:7.4.2
+    networks:
+      - doris
+
+  # Spring Boot console: edits Doris permissions and pushes them to each fab's Cluster API; never connects to Doris
   console:
     build: ./console
     environment:
@@ -130,11 +136,19 @@ services:
       CONSOLE_DB_PASSWORD: console
       CONSOLE_CRED_KEY: Zm9yLWRlbW8tb25seS1kby1ub3QtdXNlLWluLXByb2Q= # PoC only, 32 bytes
       CONSOLE_CRED_KEY_VERSION: 1
+      CONSOLE_REDIS_URL: redis://console-redis:6379
+      SPRING_APPLICATION_JSON: >-
+        {"console": {"clusters": {"endpoints": {
+          "fab-a": "http://cluster-api-a:8080",
+          "fab-b": "http://cluster-api-b:8080"}}}}
     ports:
       - "8080:8080"
+    stop_grace_period: 60s
     depends_on:
       console-db:
         condition: service_healthy
+      console-redis:
+        condition: service_started
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
       interval: 5s

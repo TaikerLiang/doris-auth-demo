@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import poc.doris.console.domain.DorisClusterSyncRepository;
@@ -27,6 +29,7 @@ class PermissionServiceTest {
     static final String FAB_A_HOST = "7d1f3a52-0a5e-4c1a-9a43-6f2b1c0e0a01";
     static final String FAB_B_HOST = "7d1f3a52-0a5e-4c1a-9a43-6f2b1c0e0b01";
 
+    @MockitoBean RedissonClient redis; // scheduler locks only; jobs are off in tests
     @Autowired PermissionService service;
     @Autowired CredentialCipher cipher;
     @Autowired DorisSyncOutboxRepository outbox;

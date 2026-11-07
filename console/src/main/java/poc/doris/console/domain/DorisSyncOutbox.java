@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 public class DorisSyncOutbox {
 
     public static final String PENDING = "PENDING";
+    public static final String SENT = "SENT";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -22,6 +23,7 @@ public class DorisSyncOutbox {
     private String status;
     private int retryCount;
     private LocalDateTime createdAt;
+    private LocalDateTime nextAttemptAt;
 
     protected DorisSyncOutbox() {
     }
@@ -32,6 +34,16 @@ public class DorisSyncOutbox {
         this.status = PENDING;
         this.retryCount = 0;
         this.createdAt = LocalDateTime.now();
+    }
+
+    /** The Cluster API accepted a snapshot at this event's version or newer. */
+    public void sent() {
+        status = SENT;
+    }
+
+    public void failed(LocalDateTime nextAttemptAt) {
+        retryCount++;
+        this.nextAttemptAt = nextAttemptAt;
     }
 
     public Long getId() {
@@ -56,5 +68,9 @@ public class DorisSyncOutbox {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public LocalDateTime getNextAttemptAt() {
+        return nextAttemptAt;
     }
 }

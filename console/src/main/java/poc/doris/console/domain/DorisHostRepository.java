@@ -7,6 +7,8 @@ public interface DorisHostRepository extends JpaRepository<DorisHost, String> {
 
     List<DorisHost> findAllByOrderByClusterNameAscInstanceNameAsc();
 
+    List<DorisHost> findByClusterName(String clusterName);
+
     boolean existsByInstanceName(String instanceName);
 
     boolean existsByFeHostAndQueryPort(String feHost, int queryPort);
