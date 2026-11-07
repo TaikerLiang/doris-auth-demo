@@ -64,6 +64,16 @@ class StateServiceTest {
     }
 
     @Test
+    void acceptsUsernamesConsoleBuildsFromLongWorkspaceNames() {
+        String username = "sa_" + "w".repeat(64);
+        Snapshot s = snapshot("fab-a", 1, "orders");
+
+        assertThat(state.receive(new Snapshot(s.cluster(), s.version(), s.hosts(),
+                List.of(new Snapshot.Path("sa1", "w".repeat(64), "h1", username, PASSWORD)), s.grants()))).isTrue();
+        assertThat(state.loadDesired().hosts().get(0).sas().get(0).username()).isEqualTo(username);
+    }
+
+    @Test
     void failedApplyKeepsEventPendingAndAppliedVersion() {
         state.receive(snapshot("fab-a", 1, "orders"));
         state.recordApply(1, null, 0);
