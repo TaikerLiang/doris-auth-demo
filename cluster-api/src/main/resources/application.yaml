@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: cluster-api
+  datasource:
+    url: ${CLUSTER_DB_URL:jdbc:mariadb://localhost:3306/cluster}
+    username: ${CLUSTER_DB_USER:cluster}
+    password: ${CLUSTER_DB_PASSWORD:cluster}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+cluster:
+  # This fab's logic_cluster_name; a snapshot for any other fab is rejected.
+  name: ${CLUSTER_NAME}
+  credential:
+    # AES-256 key (base64) for password_enc in the Cluster DB. Each fab has its own; never Console's key.
+    key: ${CLUSTER_CRED_KEY}
+    key-version: ${CLUSTER_CRED_KEY_VERSION:1}
+  redis:
+    address: ${CLUSTER_REDIS_URL:redis://localhost:6379}
+# Doris admin credentials are looked up by each host's secret_ref, e.g. DORIS_FAB_A_ADMIN=root:<password>
+
+server:
+  error:
+    include-message: always # rejected snapshots say why
