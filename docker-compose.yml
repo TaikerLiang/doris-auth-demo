@@ -234,6 +234,16 @@ services:
     networks:
       - doris
 
+  # End-to-end check of the permission lifecycle (#12): docker compose run --rm e2e
+  # It stops and starts fab services through the Docker socket to simulate failures.
+  e2e:
+    build: ./e2e
+    profiles: ["e2e"] # not started by docker compose up
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - doris
+
 volumes:
   fe-a-meta:
   be-a-storage:
