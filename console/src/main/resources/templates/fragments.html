@@ -14,6 +14,12 @@
     <a th:href="@{/hosts}" th:classappend="${active == 'hosts'} ? 'active'">Doris Hosts</a>
     <a th:href="@{/sync}" th:classappend="${active == 'sync'} ? 'active'">同步狀態</a>
   </nav>
+  <form class="ws-search" method="get" th:action="@{/workspaces}" role="search">
+    <input name="go" list="workspace-names" placeholder="跳到 workspace…" aria-label="跳到 workspace" required>
+    <datalist id="workspace-names">
+      <option th:each="n : ${workspaceNames}" th:value="${n}"></option>
+    </datalist>
+  </form>
 </header>
 
 <div th:fragment="flash">

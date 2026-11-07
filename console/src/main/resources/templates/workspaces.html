@@ -10,26 +10,34 @@
     <p>每個 workspace 在每個 fab 最多一個 doris path。沒有 doris path 的 fab 不能授權。</p>
   </section>
 
+  <form class="filters" method="get" th:action="@{/workspaces}">
+    <input type="search" name="q" th:value="${q}" placeholder="搜尋 workspace" aria-label="搜尋 workspace">
+    <select name="fab" aria-label="fab" onchange="this.form.submit()">
+      <option value="">所有 fab</option>
+      <option th:each="c : ${clusters}" th:value="${c}" th:text="'有開通 ' + ${c}" th:selected="${c == fab}">fab-a</option>
+    </select>
+    <button type="submit">篩選</button>
+    <span class="muted" th:text="${#lists.size(rows)} + ' / ' + ${total} + ' 個 workspace'">3 / 3</span>
+  </form>
+
   <div class="table-wrap">
     <table>
       <thead>
-      <tr>
-        <th>Workspace</th>
-        <th th:each="c : ${clusters}"><span class="fab" th:text="${c}">fab-a</span></th>
-      </tr>
+      <tr><th>Workspace</th><th>已開通的 fab</th><th>授權</th></tr>
       </thead>
       <tbody>
       <tr th:each="row : ${rows}">
-        <td><a class="strong" th:href="@{/workspaces/{w}(w=${row.workspaceName})}" th:text="${row.workspaceName}">ws</a></td>
-        <td th:each="fab : ${row.fabs}">
-          <th:block th:if="${fab.path != null}">
-            <code th:text="${fab.path.username}">sa_ws</code>
-            <span class="muted">@ <span th:text="${fab.host?.instanceName}">doris</span></span>
-            <div class="sub" th:text="${#lists.size(fab.grants)} + ' 筆授權'">0 筆授權</div>
-          </th:block>
-          <span class="muted" th:if="${fab.path == null}">未開通</span>
+        <td class="nowrap"><a class="strong" th:href="@{/workspaces/{w}(w=${row.workspaceName})}" th:text="${row.workspaceName}">ws</a></td>
+        <td>
+          <span class="chips" th:unless="${#lists.isEmpty(row.fabs)}">
+            <a class="fab" th:each="f : ${row.fabs}" th:text="${f}"
+               th:href="@{/workspaces/{w}/fabs/{c}(w=${row.workspaceName},c=${f})}">fab-a</a>
+          </span>
+          <span class="muted" th:if="${#lists.isEmpty(row.fabs)}">未開通</span>
         </td>
+        <td class="nowrap" th:text="${row.grantCount} + ' 筆'">0 筆</td>
       </tr>
+      <tr th:if="${#lists.isEmpty(rows)}"><td colspan="3" class="muted">沒有符合條件的 workspace</td></tr>
       </tbody>
     </table>
   </div>
