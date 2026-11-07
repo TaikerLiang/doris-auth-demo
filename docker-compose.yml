@@ -144,16 +144,91 @@ services:
     networks:
       - doris
 
+  # Cluster layer (#10): each fab's DLH-Cluster API applies Console's desired state to its own Doris and Redis
+  cluster-db:
+    image: mariadb:10.6.19
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - cluster-db:/var/lib/mysql
+      - ./cluster-db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - doris
+
+  # Each fab's Redis, where DAO reads SA credentials; no host port (docker compose exec redis-a redis-cli)
+  redis-a:
+    image: redis:7.4.2
+    networks:
+      - doris
+
+  redis-b:
+    image: redis:7.4.2
+    networks:
+      - doris
+
+  cluster-api-a:
+    build: ./cluster-api
+    environment:
+      CLUSTER_NAME: fab-a
+      CLUSTER_DB_URL: jdbc:mariadb://cluster-db:3306/cluster_fab_a
+      CLUSTER_DB_USER: cluster
+      CLUSTER_DB_PASSWORD: cluster
+      CLUSTER_CRED_KEY: Zm9yLWRlbW8tb25seS1jbHVzdGVyLWZhYi1hLWtleSE= # PoC only, 32 bytes, differs per fab
+      CLUSTER_REDIS_URL: redis://redis-a:6379
+      DORIS_FAB_A_ADMIN: "root:" # secret_ref of doris-fab-a: user:password
+    ports:
+      - "8091:8080"
+    depends_on:
+      cluster-db:
+        condition: service_healthy
+      redis-a:
+        condition: service_started
+    healthcheck: &cluster-api-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+    networks:
+      - doris
+
+  cluster-api-b:
+    build: ./cluster-api
+    environment:
+      CLUSTER_NAME: fab-b
+      CLUSTER_DB_URL: jdbc:mariadb://cluster-db:3306/cluster_fab_b
+      CLUSTER_DB_USER: cluster
+      CLUSTER_DB_PASSWORD: cluster
+      CLUSTER_CRED_KEY: Zm9yLWRlbW8tb25seS1jbHVzdGVyLWZhYi1iLWtleSE= # PoC only, 32 bytes, differs per fab
+      CLUSTER_REDIS_URL: redis://redis-b:6379
+      DORIS_FAB_B_ADMIN: "root:"
+    ports:
+      - "8092:8080"
+    depends_on:
+      cluster-db:
+        condition: service_healthy
+      redis-b:
+        condition: service_started
+    healthcheck: *cluster-api-health
+    networks:
+      - doris
+
 volumes:
   fe-a-meta:
   be-a-storage:
   fe-b-meta:
   be-b-storage:
   console-db:
+  cluster-db:
 
 networks:
   doris:
     ipam:
       config:
         - subnet: 172.30.80.0/24
-          ip_range: 172.30.80.128/25 # dynamic IPs (console, console-db, loader) stay clear of the fixed .2-.5
+          ip_range: 172.30.80.128/25 # dynamic IPs (console, cluster services, loader) stay clear of the fixed .2-.5

@@ -1,0 +1,70 @@
+databaseChangeLog:
+  # Console's data for this fab, overwritten as a whole by every snapshot. Console already enforces the
+  # references, so this replica has no foreign keys.
+  - changeSet:
+      id: 1-snapshot-tables
+      author: poc
+      changes:
+        - createTable:
+            tableName: doris_hosts
+            columns:
+              - column: { name: id, type: CHAR(36), constraints: { primaryKey: true } }
+              - column: { name: instance_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: fe_host, type: VARCHAR(255), constraints: { nullable: false } }
+              - column: { name: query_port, type: INT, constraints: { nullable: false } }
+              - column: { name: http_port, type: INT, constraints: { nullable: false } }
+              - column: { name: secret_ref, type: VARCHAR(128), constraints: { nullable: false } }
+        - createTable:
+            tableName: workspace_doris
+            columns:
+              - column: { name: id, type: CHAR(36), constraints: { primaryKey: true } }
+              - column: { name: workspace_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: doris_host_id, type: CHAR(36), constraints: { nullable: false } }
+              - column: { name: username, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: password_enc, type: TEXT, constraints: { nullable: false } }
+              - column: { name: key_version, type: INT, constraints: { nullable: false } }
+        - createTable:
+            tableName: doris_sa_grants
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column: { name: workspace_doris_id, type: CHAR(36), constraints: { nullable: false } }
+              - column: { name: catalog_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: database_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: table_name, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: privilege, type: VARCHAR(32), constraints: { nullable: false } }
+
+  - changeSet:
+      id: 2-sync-tables
+      author: poc
+      changes:
+        # SAs this Cluster created; the reconciler only ever alters or drops these.
+        - createTable:
+            tableName: doris_managed_users
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column: { name: doris_host_id, type: CHAR(36), constraints: { nullable: false } }
+              - column: { name: username, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: sa_id, type: CHAR(36), constraints: { nullable: false } }
+              - column: { name: password_hash, type: CHAR(64), constraints: { nullable: false } }
+              - column: { name: created_at, type: DATETIME, constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: doris_managed_users
+            columnNames: doris_host_id, username
+            constraintName: uk_managed_host_username
+        - createTable:
+            tableName: doris_sync_state
+            columns:
+              - column: { name: cluster_name, type: VARCHAR(16), constraints: { primaryKey: true } }
+              - column: { name: received_version, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: applied_version, type: BIGINT }
+              - column: { name: last_error, type: TEXT }
+              - column: { name: last_drift, type: INT, constraints: { nullable: false } }
+              - column: { name: updated_at, type: DATETIME, constraints: { nullable: false } }
+        - createTable:
+            tableName: doris_apply_outbox
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column: { name: version, type: BIGINT, constraints: { nullable: false } }
+              - column: { name: status, type: VARCHAR(16), constraints: { nullable: false } }
+              - column: { name: retry_count, type: INT, constraints: { nullable: false } }
+              - column: { name: created_at, type: DATETIME, constraints: { nullable: false } }

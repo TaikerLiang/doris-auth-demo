@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:cluster;MODE=MariaDB;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: none # H2 reads TEXT columns as CLOB; schema validation runs against MariaDB at startup instead
+
+cluster:
+  name: fab-a
+  credential:
+    key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
+    key-version: 1
