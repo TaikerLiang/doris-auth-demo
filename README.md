@@ -5,7 +5,7 @@ Doris SA PoC：平台管理者在 Console 設定各 workspace 的 Doris 權限�
 
 目前完成：兩座 Doris（Fab A / Fab B）與 Olist 資料、Spring Boot Console（權限正本 + outbox + relay）、
 各 fab 的 DLH-Cluster API（比對並套用到 Doris、寫 fab Redis）。在 Console 改權限，約 10 秒內就會生效到 Doris。
-尚未實作：DAO（從 fab Redis 取憑證連 Doris 的 client）、e2e 驗證腳本（#12）。
+權限生命週期有 e2e 驗證（`docker compose run --rm e2e`）。尚未實作：DAO（從 fab Redis 取憑證連 Doris 的 client）。
 
 設計文件：[docs/design.md](docs/design.md)、C4 System Context：[docs/c4-context.html](docs/c4-context.html)
 
@@ -144,6 +144,33 @@ docker compose exec redis-a redis-cli GET doris:doris-fab-a:cred:s1
 
 用 curl 測過之後，Cluster DB 的 `received_version` 可能比 Console 的版本還新；要接 Console 前先重設：
 `docker compose rm -sf cluster-api-a cluster-api-b cluster-db && docker volume rm doris-auth-demo_cluster-db`。
+
+## e2e 驗證（Desired State 與 Actual State 一致性）
+
+```bash
+docker compose up -d --build --wait   # 整套服務都要在跑
+docker compose run --rm e2e           # 約 3 分鐘；全部通過時結束碼為 0
+```
+
+腳本（`e2e/run.sh`）透過 Console 的 HTTP 端點改權限，再直接查 Doris 的 `SHOW ALL GRANTS`，
+和 Console DB 的期望狀態逐筆比對（每個 SA 與每筆權限都要一致，多一個沒人管的 `sa_*` 帳號也算不一致）。
+它用自己的 workspace `e2e-a`、`e2e-b`，跑完會把加過的東西都移除；故障情境透過 Docker socket 停掉再啟動服務。
+
+| # | 情境 | 驗證什麼 |
+| --- | --- | --- |
+| 1 | 正常生效 | 開通並授權後 Doris 一致；用 fab Redis 的帳密登入，有權限的 table 可查、其他被拒 |
+| 2 | 撤銷 | 先 `REVOKE`、再 `DROP USER`；舊密碼不能建立新連線；Redis 的 cred key 被刪除 |
+| 3 | 部分 fab 同步失敗 | 停掉 cluster-api-b：fab-a 照常生效，fab-b 落後並退避重試，恢復後追到最新版本 |
+| 4 | Doris 掛掉 | 停掉 fe-b：Cluster 回報錯誤，FE 恢復後自動補上 |
+| 5 | 錯誤的授權 | 不存在的 table：同 fab 其他 SA 照常生效，`lastError` 說明原因，applied 不前進 |
+| 6 | 權限漂移 | 用 root 手動 `GRANT`／`REVOKE`／`DROP USER` 後觸發同步：修回一致，回報漂移數 |
+| 7 | 不碰人工帳號 | 人工建立的 `sa_manual` 跑完所有情境後不變 |
+| 8 | 冪等 | 重複觸發同一個版本：不執行任何 SQL（漂移數 0） |
+| 9 | 複製授權 | fab-a 的授權複製到 fab-b，fab-b 原本多的授權保留 |
+| 10 | 撤銷對既有連線的影響 | Doris 4.1.4 實測：`REVOKE` 對既有連線立即生效；`DROP USER` **不會斷線**，但該連線查任何 table 都被拒 |
+
+情境 6 用「立即同步」（`POST /api/sync/fab-a`）觸發，不等每 10 分鐘的 `doris-reconcile`；兩者走同一段 reconcile。
+每一步最多等 `E2E_WAIT` 秒（預設 180），涵蓋 relay 的退避與 FE 重啟。
 
 ## 範例：建立受限使用者
 
