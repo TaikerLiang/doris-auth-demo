@@ -3,6 +3,7 @@ package poc.doris.console;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -91,6 +92,33 @@ class PermissionServiceTest {
         assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isZero();
         assertThat(outbox.findTop50ByOrderByIdDesc()).extracting(DorisSyncOutbox::getDesiredVersion)
                 .containsExactly(3L, 2L, 1L);
+    }
+
+    @Test
+    void copyGrantsAddsOnlyMissingGrantsAndBumpsOnlyChangedFabs() {
+        service.openPath("workspace-a", "fab-a", FAB_A_HOST);
+        service.openPath("workspace-a", "fab-b", FAB_B_HOST);
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "customers", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-b", "internal", "olist", "orders", "SELECT_PRIV");
+        service.addGrant("workspace-a", "fab-b", "internal", "olist", "sellers", "LOAD_PRIV");
+
+        assertThat(service.copyGrants("workspace-a", "fab-a", List.of("fab-b"))).isEqualTo(1);
+        assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isEqualTo(4);
+
+        // Nothing left to copy: no new grants and no new sync event
+        assertThat(service.copyGrants("workspace-a", "fab-a", List.of("fab-b"))).isZero();
+        assertThat(syncs.findById("fab-b").orElseThrow().getDesiredVersion()).isEqualTo(4);
+        assertThat(syncs.findById("fab-a").orElseThrow().getDesiredVersion()).isEqualTo(3);
+    }
+
+    @Test
+    void copyGrantsToFabWithoutDorisPathIsForbidden() {
+        service.openPath("workspace-a", "fab-a", FAB_A_HOST);
+        service.addGrant("workspace-a", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
+
+        assertStatus(() -> service.copyGrants("workspace-a", "fab-a", List.of("fab-b")), HttpStatus.FORBIDDEN);
+        assertStatus(() -> service.copyGrants("workspace-a", "fab-a", List.of("fab-a")), HttpStatus.BAD_REQUEST);
     }
 
     private static void assertStatus(Runnable action, HttpStatus status) {

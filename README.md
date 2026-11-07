@@ -66,11 +66,15 @@ Console：http://localhost:8080（Console DB 是 compose 裡的 `console-db`，M
 Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 transaction 裡遞增該 fab 的
 `desired_version`，並寫入一筆 `doris_sync_outbox` 事件。
 
-- **Workspaces**：每個 workspace 在各 fab 的 doris path 與授權筆數。
-- **Workspace 詳細頁**：開通或清空 doris path，新增或移除 table 權限（`catalog.database.table` + 權限）。
+- **Workspaces**：每個 workspace 一列，顯示已開通的 fab 與授權總數。可以搜尋名稱、篩選「有開通某個 fab」的 workspace。
+- **Workspace 頁**：列出這個 workspace 已開通的 fab；在下方選 fab 的 Doris host 開通新的 doris path（只列出還沒開通的 fab）。
   開通時會產生 32 字元的隨機 SA 密碼，以 AES-256-GCM 加密存入 `password_enc`。
+- **Fab 頁**（workspace × fab）：新增或移除 table 權限（`catalog.database.table` + 權限）、清空 doris path，
+  以及把授權複製到其他已開通的 fab。複製只新增目標 fab 缺少的授權，不刪除目標 fab 原有的授權。
 - **Doris Hosts**：登記或刪除各 fab 的 Doris instance。
 - **同步狀態**：各 fab 的 desired / applied version 與 outbox 事件。
+
+上方導覽列的「跳到 workspace」可以直接輸入名稱切換 workspace。
 
 規則（issue #1 的定案）：
 

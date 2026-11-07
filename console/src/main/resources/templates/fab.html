@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-Hant">
+<head th:replace="~{fragments :: head(${workspace} + ' · ' + ${cluster})}"></head>
+<body>
+<header th:replace="~{fragments :: nav('workspaces')}"></header>
+<main>
+  <div th:replace="~{fragments :: flash}"></div>
+  <section class="page-head">
+    <a class="crumb" th:href="@{/workspaces/{w}(w=${workspace})}" th:text="'← ' + ${workspace}">← workspace</a>
+    <h1><span th:text="${workspace}">workspace</span> <span class="fab" th:text="${cluster}">fab-a</span></h1>
+    <p>授權只寫進 Console DB，並產生該 fab 的同步事件；之後由同步流程套用到 Doris。</p>
+  </section>
+
+  <section class="card">
+    <dl class="facts">
+      <dt>Doris instance</dt><dd th:text="${host?.instanceName}">doris</dd>
+      <dt>FE endpoint</dt><dd><code th:text="${host?.feHost} + ':' + ${host?.queryPort}">fe:9030</code></dd>
+      <dt>SA</dt><dd><code th:text="${path.username}">sa</code></dd>
+      <dt>sa_id</dt><dd><code class="small" th:text="${path.id}">id</code></dd>
+      <dt>密碼</dt><dd th:text="'已加密（key v' + ${path.keyVersion} + '）'">已加密</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2 th:text="'授權（' + ${#lists.size(grants)} + ' 筆）'">授權</h2></div>
+    <div class="scroll">
+      <table class="grants">
+        <thead>
+        <tr><th>Catalog</th><th>Database</th><th>Table</th><th>權限</th><th></th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="g : ${grants}">
+          <td th:text="${g.catalogName}">internal</td>
+          <td th:text="${g.databaseName}">olist</td>
+          <td th:text="${g.tableName}">orders</td>
+          <td><span class="priv" th:text="${g.privilege}">SELECT_PRIV</span></td>
+          <td class="actions">
+            <form method="post"
+                  th:action="@{/workspaces/{w}/fabs/{c}/grants/{id}/delete(w=${workspace},c=${cluster},id=${g.id})}">
+              <button class="link danger" type="submit">移除</button>
+            </form>
+          </td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(grants)}">
+          <td colspan="5" class="muted">尚無授權</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <form class="grant-form" method="post"
+          th:action="@{/workspaces/{w}/fabs/{c}/grants(w=${workspace},c=${cluster})}">
+      <input name="catalog" value="internal" required aria-label="catalog">
+      <input name="database" placeholder="database" required aria-label="database">
+      <input name="table" placeholder="table 或 *" required aria-label="table">
+      <select name="privilege" aria-label="privilege">
+        <option th:each="p : ${privileges}" th:value="${p}" th:text="${p}" th:selected="${p == 'SELECT_PRIV'}">SELECT_PRIV</option>
+      </select>
+      <button type="submit">授權</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>複製授權到其他 fab</h2></div>
+    <p class="muted" th:if="${#lists.isEmpty(copyTargets)}">這個 workspace 還沒有在其他 fab 開通 doris path。</p>
+    <form method="post" th:unless="${#lists.isEmpty(copyTargets)}" class="copy-form"
+          th:action="@{/workspaces/{w}/fabs/{c}/grants/copy(w=${workspace},c=${cluster})}">
+      <div class="checks">
+        <label class="check" th:each="t : ${copyTargets}">
+          <input type="checkbox" name="targets" th:value="${t}"> <span th:text="${t}">fab-b</span>
+        </label>
+      </div>
+      <div class="row">
+        <button type="button" class="link"
+                onclick="this.form.querySelectorAll('[name=targets]').forEach(c => c.checked = true)">全選</button>
+        <button type="submit" th:disabled="${#lists.isEmpty(grants)}">複製</button>
+      </div>
+    </form>
+    <p class="hint">只新增目標 fab 缺少的授權，不會刪除目標 fab 原有的授權。只列出已開通 doris path 的 fab。</p>
+  </section>
+
+  <div class="page-foot">
+    <form method="post" th:action="@{/workspaces/{w}/fabs/{c}/path/delete(w=${workspace},c=${cluster})}"
+          onsubmit="return confirm('確定要清空這個 fab 的 doris path？SA 會被移除。')">
+      <button class="link danger" type="submit" th:disabled="${!#lists.isEmpty(grants)}"
+              th:title="${#lists.isEmpty(grants)} ? '' : '還有授權，不能清空 doris path'">清空 doris path</button>
+    </form>
+  </div>
+</main>
+</body>
+</html>

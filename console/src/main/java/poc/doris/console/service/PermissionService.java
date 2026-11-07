@@ -1,5 +1,6 @@
 package poc.doris.console.service;
 
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
@@ -136,6 +137,36 @@ public class PermissionService {
                 .orElseThrow(() -> notFound("授權"));
         grants.delete(grant);
         enqueueSync(clusterName);
+    }
+
+    /**
+     * Copies a workspace's grants in one fab to other fabs where it already has a doris path. Only missing
+     * grants are added; grants the target has beyond the source stay. Returns how many grants were added.
+     */
+    public int copyGrants(String workspaceName, String fromCluster, List<String> toClusters) {
+        WorkspaceDoris from = requirePath(workspaceName, fromCluster);
+        require(!toClusters.isEmpty(), "請選擇要複製到的 fab");
+        require(!toClusters.contains(fromCluster), "不能複製到自己");
+        List<DorisSaGrant> source =
+                grants.findByWorkspaceDorisIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(
+                        from.getId());
+        int added = 0;
+        for (String cluster : toClusters) {
+            WorkspaceDoris to = requirePath(workspaceName, cluster);
+            int before = added;
+            for (DorisSaGrant g : source) {
+                if (!grants.existsByWorkspaceDorisIdAndCatalogNameAndDatabaseNameAndTableNameAndPrivilege(
+                        to.getId(), g.getCatalogName(), g.getDatabaseName(), g.getTableName(), g.getPrivilege())) {
+                    grants.save(new DorisSaGrant(to.getId(), g.getCatalogName(), g.getDatabaseName(),
+                            g.getTableName(), g.getPrivilege()));
+                    added++;
+                }
+            }
+            if (added > before) {
+                enqueueSync(cluster);
+            }
+        }
+        return added;
     }
 
     /** Bumps the fab's desired_version and records an outbox event for it, in the caller's transaction. */
