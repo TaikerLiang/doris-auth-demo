@@ -115,11 +115,13 @@ public class SyncService {
             }
             try {
                 ClusterClient.Status s = client.status(cluster);
-                tx.executeWithoutResult(status -> syncs.findById(cluster)
+                // Row lock: the update writes every column, so without it a version bump committed by a
+                // permission change in between would be overwritten with the old desired_version
+                tx.executeWithoutResult(status -> syncs.findForUpdate(cluster)
                         .ifPresent(row -> row.reported(s.appliedVersion(), s.lastError(), s.lastDrift())));
                 polled++;
             } catch (RuntimeException e) {
-                tx.executeWithoutResult(status -> syncs.findById(cluster).ifPresent(row -> row.reported(
+                tx.executeWithoutResult(status -> syncs.findForUpdate(cluster).ifPresent(row -> row.reported(
                         row.getAppliedVersion(), "無法連線 Cluster API：" + e.getMessage(), row.getLastDrift())));
                 log.warn("status-poll {} failed: {}", cluster, e.getMessage());
             }
