@@ -183,6 +183,7 @@ services:
       DORIS_FAB_A_ADMIN: "root:" # secret_ref of doris-fab-a: user:password
     ports:
       - "8091:8080"
+    stop_grace_period: 60s # longer than Spring's 30s graceful shutdown, like terminationGracePeriodSeconds
     depends_on:
       cluster-db:
         condition: service_healthy
@@ -209,6 +210,7 @@ services:
       DORIS_FAB_B_ADMIN: "root:"
     ports:
       - "8092:8080"
+    stop_grace_period: 60s # longer than Spring's 30s graceful shutdown, like terminationGracePeriodSeconds
     depends_on:
       cluster-db:
         condition: service_healthy

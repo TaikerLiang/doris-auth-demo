@@ -12,3 +12,11 @@ cluster:
   credential:
     key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
     key-version: 1
+
+scheduler:
+  default-zone: Asia/Taipei
+  jobs:
+    doris-apply:
+      enabled: false
+    doris-reconcile:
+      enabled: false

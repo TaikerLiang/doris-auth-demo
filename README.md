@@ -5,8 +5,8 @@ Doris SA PoC：平台管理者在 Console 設定各 workspace 的 Doris 權限�
 
 目前完成：兩座 Doris（Fab A / Fab B）與 Olist 資料、Spring Boot Console（權限正本 + outbox）、
 各 fab 的 DLH-Cluster API（同步段 2：比對並套用到 Doris、寫 fab Redis）。
-尚未實作：Console → Cluster API 的 relay（#11）與排程（#9）、DAO，所以 Console 上的權限**還不會**自動套用到 Doris；
-目前要用 curl 直接呼叫 Cluster API。
+尚未實作：Console → Cluster API 的 relay（#11）、DAO，所以 Console 上的權限**還不會**自動送到 Cluster API；
+目前要用 curl 直接呼叫 Cluster API，之後由它的排程套用到 Doris。
 
 設計文件：[docs/design.md](docs/design.md)、C4 System Context：[docs/c4-context.html](docs/c4-context.html)
 
@@ -101,7 +101,7 @@ Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 
 | API | 作用 |
 | --- | --- |
 | `PUT /doris/state` | 收下該 fab 的完整期望狀態（hosts、paths 含明文密碼、grants、version）；不比 `received_version` 新的版本直接忽略 |
-| `POST /doris/trigger` | 立即套用目前的狀態到 Doris 與 Redis，也用來修正漂移；回傳同步結果 |
+| `POST /doris/trigger` | 排入一次套用（回 202），由 `doris-apply` 在幾秒內執行；也用來修正漂移 |
 | `GET /doris/status` | `receivedVersion`、`appliedVersion`、`lastError`、`lastDrift` |
 
 套用時用平台 admin 帳號讀 `SHOW ALL GRANTS`，只補差異：缺的 SA `CREATE USER`、多的 `DROP USER`、
@@ -110,6 +110,17 @@ Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 
 一筆失敗（例如 table 不存在）不影響其他 SA；全部成功才更新 `appliedVersion`。
 憑證寫進 fab Redis：先寫 `doris:<instance>:cred:<sa_id>`，再遞增 `doris:<instance>:cred_version`。
 
+排程（設定在 `cluster-api/src/main/resources/application.yaml` 的 `scheduler.jobs`）：
+
+| Job | 頻率 | 作用 |
+| --- | --- | --- |
+| `doris-apply` | 每 5 秒 | 執行待處理的套用事件（新的 snapshot、trigger、失敗重試） |
+| `doris-reconcile` | 每 10 分 | 版本沒變也重新套用一次，修正 Doris 上被手動改掉的權限 |
+
+兩個 job 共用 Redis 鎖 `scheduler:<fab>:doris`，同一個 fab 不論有幾個 replica，同時只有一個在動 Doris；
+拿不到鎖的那一輪會跳過並記 log。鎖由 Redisson watchdog 續約，持有者掛掉後約 30 秒自動釋放。
+做法參考 [Spring Scheduler Solution](https://blog.taiker.space/spring-scheduler-solution/)（#9）。
+
 ```bash
 curl -X PUT localhost:8091/doris/state -H 'Content-Type: application/json' -d '{
   "cluster": "fab-a", "version": 1,
@@ -117,7 +128,7 @@ curl -X PUT localhost:8091/doris/state -H 'Content-Type: application/json' -d '{
   "paths":  [{"saId": "s1", "workspace": "workspace-a", "hostId": "h-a", "username": "sa_workspace_a", "password": "Pw1aaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}],
   "grants": [{"saId": "s1", "catalog": "internal", "database": "olist", "table": "orders", "privilege": "SELECT_PRIV"}]
 }'
-curl -X POST localhost:8091/doris/trigger
+sleep 5   # doris-apply 每 5 秒執行一次
 mysql -usa_workspace_a -pPw1aaaaaaaaaaaaaaaaaaaaaaaaaaaaa -h127.0.0.1 -P9030 -e 'select count(*) from olist.orders'
 docker compose exec redis-a redis-cli GET doris:doris-fab-a:cred:s1
 ```
