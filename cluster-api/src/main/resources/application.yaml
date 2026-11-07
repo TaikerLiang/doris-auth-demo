@@ -11,6 +11,16 @@ spring:
       ddl-auto: validate
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+  task:
+    scheduling:
+      pool:
+        size: 5 # a long doris-reconcile must not hold up other jobs
+      thread-name-prefix: scheduler-
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 cluster:
   # This fab's logic_cluster_name; a snapshot for any other fab is rejected.
@@ -24,5 +34,17 @@ cluster:
 # Doris admin credentials are looked up by each host's secret_ref, e.g. DORIS_FAB_A_ADMIN=root:<password>
 
 server:
+  shutdown: graceful # keep it shorter than the container's stop grace period (compose: 60s)
   error:
     include-message: always # rejected snapshots say why
+
+# Jobs are BaseScheduler beans named like these keys. Spring cron has six fields (seconds first).
+scheduler:
+  default-zone: Asia/Taipei
+  jobs:
+    doris-apply:
+      enabled: true
+      cron: "*/5 * * * * *"
+    doris-reconcile:
+      enabled: true
+      cron: "0 */10 * * * *"

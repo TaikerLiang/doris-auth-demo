@@ -10,7 +10,7 @@ import poc.doris.cluster.service.StateService.HostState;
 
 /**
  * Drains doris_apply_outbox: applies the Cluster DB state to every host of this fab and records the result.
- * Called by POST /doris/trigger for now; the doris-apply / doris-reconcile jobs (#9) will call it on a schedule.
+ * Called by the doris-apply and doris-reconcile jobs.
  */
 @Service
 public class ApplyService {
@@ -23,19 +23,19 @@ public class ApplyService {
         this.reconciler = reconciler;
     }
 
-    /** Queues an apply of the current state and runs it now. */
-    public DorisSyncState trigger() {
+    /** doris-reconcile: applies the current state even if no new version arrived, which repairs drift. */
+    public int reconcile() {
         state.enqueueApply();
         return drain();
     }
 
     /**
-     * Synchronized because two runs on one Doris could read SHOW ALL GRANTS before each other's changes;
-     * across replicas the #9 lock takes over.
+     * doris-apply: runs the pending apply events, if any. Returns how many statements were executed.
+     * Callers hold the fab's scheduler lock, so only one run touches this fab's Doris at a time.
      */
-    public synchronized DorisSyncState drain() {
+    public int drain() {
         if (!state.hasPendingApply()) {
-            return state.state();
+            return 0;
         }
         DorisSyncState before = state.state();
         Desired desired = state.loadDesired();
@@ -48,7 +48,8 @@ public class ApplyService {
         }
         // Statements needed for a version that was already applied mean Doris drifted from it
         boolean alreadyApplied = Objects.equals(before.getAppliedVersion(), desired.version());
-        return state.recordApply(desired.version(), errors.isEmpty() ? null : String.join("\n", errors),
+        state.recordApply(desired.version(), errors.isEmpty() ? null : String.join("\n", errors),
                 alreadyApplied ? executed : 0);
+        return executed;
     }
 }
