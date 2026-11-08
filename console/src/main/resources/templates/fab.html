@@ -5,31 +5,60 @@
 <header th:replace="~{fragments :: nav('workspaces')}"></header>
 <main>
   <div th:replace="~{fragments :: flash}"></div>
+
+  <section class="secret" th:if="${shownPassword}">
+    <div class="secret-head">
+      <strong th:text="${shownPassword.username} + ' 的密碼'">sa 的密碼</strong>
+      <span class="sub">只會顯示這一次，離開這頁後就看不到了</span>
+    </div>
+    <div class="secret-value">
+      <code id="shown-password" th:text="${shownPassword.password}">password</code>
+      <button type="button"
+              onclick="navigator.clipboard.writeText(document.getElementById('shown-password').textContent).then(() => this.textContent = '已複製')">複製</button>
+    </div>
+    <p class="hint">同步到 Doris 約需 10 秒；DAO 會從 fab Redis 取得新密碼，不需要手動設定。</p>
+  </section>
+
   <section class="page-head">
     <a class="crumb" th:href="@{/workspaces/{w}(w=${workspace})}" th:text="'← ' + ${workspace}">← workspace</a>
     <h1><span th:text="${workspace}">workspace</span> <span class="fab" th:text="${cluster}">fab-a</span></h1>
-    <p>授權只寫進 Console DB，並產生該 fab 的同步事件；之後由同步流程套用到 Doris。</p>
+    <p>
+      在 <strong th:text="${host?.instanceName}">doris</strong>
+      （<code th:text="${host?.feHost} + ':' + ${host?.queryPort}">fe:9030</code>）上的 SA 與授權。
+      變更只寫進 Console DB，之後由同步流程套用到 Doris。
+    </p>
   </section>
 
-  <section class="card">
+  <section class="card" th:each="p : ${sas}" th:with="sa=${p.sa}">
+    <div class="card-head">
+      <div class="sa-title">
+        <code class="strong" th:text="${sa.username}">sa_ws_etl</code>
+        <span class="muted" th:text="${sa.description}" th:unless="${#strings.isEmpty(sa.description)}">用途</span>
+      </div>
+      <div class="row">
+        <form method="post" th:action="@{/workspaces/{w}/fabs/{c}/sas/{id}/password(w=${workspace},c=${cluster},id=${sa.id})}"
+              onsubmit="return confirm('重新產生密碼後，同步完成時舊密碼就會失效。確定？')">
+          <button type="submit" class="secondary">重新產生密碼</button>
+        </form>
+        <form method="post" th:action="@{/workspaces/{w}/fabs/{c}/sas/{id}/delete(w=${workspace},c=${cluster},id=${sa.id})}"
+              onsubmit="return confirm('確定要刪除這個 SA？同步後會從 Doris 移除。')">
+          <button class="link danger" type="submit" th:disabled="${!#lists.isEmpty(p.grants)}"
+                  th:title="${#lists.isEmpty(p.grants)} ? '' : '還有授權，不能刪除'">刪除 SA</button>
+        </form>
+      </div>
+    </div>
     <dl class="facts">
-      <dt>Doris instance</dt><dd th:text="${host?.instanceName}">doris</dd>
-      <dt>FE endpoint</dt><dd><code th:text="${host?.feHost} + ':' + ${host?.queryPort}">fe:9030</code></dd>
-      <dt>SA</dt><dd><code th:text="${path.username}">sa</code></dd>
-      <dt>sa_id</dt><dd><code class="small" th:text="${path.id}">id</code></dd>
-      <dt>密碼</dt><dd th:text="'已加密（key v' + ${path.keyVersion} + '）'">已加密</dd>
+      <dt>sa_id</dt><dd><code class="small" th:text="${sa.id}">id</code></dd>
+      <dt>密碼</dt><dd th:text="'已加密（key v' + ${sa.keyVersion} + '）'">已加密</dd>
     </dl>
-  </section>
 
-  <section class="card">
-    <div class="card-head"><h2 th:text="'授權（' + ${#lists.size(grants)} + ' 筆）'">授權</h2></div>
     <div class="scroll">
       <table class="grants">
         <thead>
         <tr><th>Catalog</th><th>Database</th><th>Table</th><th>權限</th><th></th></tr>
         </thead>
         <tbody>
-        <tr th:each="g : ${grants}">
+        <tr th:each="g : ${p.grants}">
           <td th:text="${g.catalogName}">internal</td>
           <td th:text="${g.databaseName}">olist</td>
           <td th:text="${g.tableName}">orders</td>
@@ -41,7 +70,7 @@
             </form>
           </td>
         </tr>
-        <tr th:if="${#lists.isEmpty(grants)}">
+        <tr th:if="${#lists.isEmpty(p.grants)}">
           <td colspan="5" class="muted">尚無授權</td>
         </tr>
         </tbody>
@@ -49,41 +78,52 @@
     </div>
 
     <form class="grant-form" method="post"
-          th:action="@{/workspaces/{w}/fabs/{c}/grants(w=${workspace},c=${cluster})}">
+          th:action="@{/workspaces/{w}/fabs/{c}/sas/{id}/grants(w=${workspace},c=${cluster},id=${sa.id})}">
       <input name="catalog" value="internal" required aria-label="catalog">
       <input name="database" placeholder="database" required aria-label="database">
       <input name="table" placeholder="table 或 *" required aria-label="table">
       <select name="privilege" aria-label="privilege">
-        <option th:each="p : ${privileges}" th:value="${p}" th:text="${p}" th:selected="${p == 'SELECT_PRIV'}">SELECT_PRIV</option>
+        <option th:each="pr : ${privileges}" th:value="${pr}" th:text="${pr}" th:selected="${pr == 'SELECT_PRIV'}">SELECT_PRIV</option>
       </select>
       <button type="submit">授權</button>
     </form>
+
+    <details class="copy" th:unless="${#lists.isEmpty(p.grants)}">
+      <summary>複製授權到其他 SA</summary>
+      <p class="muted" th:if="${#lists.size(copyTargets) < 2}">這個 workspace 沒有其他 SA。</p>
+      <form method="post" th:if="${#lists.size(copyTargets) > 1}" class="copy-form"
+            th:action="@{/workspaces/{w}/fabs/{c}/sas/{id}/grants/copy(w=${workspace},c=${cluster},id=${sa.id})}">
+        <div class="checks">
+          <label class="check" th:each="t : ${copyTargets}" th:unless="${t.saId == sa.id}">
+            <input type="checkbox" name="targets" th:value="${t.saId}"> <span th:text="${t.label}">fab-b · sa</span>
+          </label>
+        </div>
+        <div class="row">
+          <button type="button" class="link"
+                  onclick="this.form.querySelectorAll('[name=targets]').forEach(c => c.checked = true)">全選</button>
+          <button type="submit">複製</button>
+        </div>
+        <p class="hint">只新增目標 SA 缺少的授權，不會刪除它原有的授權。可以複製到其他 fab 的 SA。</p>
+      </form>
+    </details>
   </section>
 
   <section class="card">
-    <div class="card-head"><h2>複製授權到其他 fab</h2></div>
-    <p class="muted" th:if="${#lists.isEmpty(copyTargets)}">這個 workspace 還沒有在其他 fab 開通 doris path。</p>
-    <form method="post" th:unless="${#lists.isEmpty(copyTargets)}" class="copy-form"
-          th:action="@{/workspaces/{w}/fabs/{c}/grants/copy(w=${workspace},c=${cluster})}">
-      <div class="checks">
-        <label class="check" th:each="t : ${copyTargets}">
-          <input type="checkbox" name="targets" th:value="${t}"> <span th:text="${t}">fab-b</span>
-        </label>
-      </div>
-      <div class="row">
-        <button type="button" class="link"
-                onclick="this.form.querySelectorAll('[name=targets]').forEach(c => c.checked = true)">全選</button>
-        <button type="submit" th:disabled="${#lists.isEmpty(grants)}">複製</button>
-      </div>
+    <div class="card-head"><h2>新增 SA</h2></div>
+    <form class="form-grid" method="post" th:action="@{/workspaces/{w}/fabs/{c}/sas(w=${workspace},c=${cluster})}">
+      <label>username<input name="username" th:value="${usernamePrefix}" required pattern="[A-Za-z0-9_]{1,64}"></label>
+      <label>用途說明<input name="description" placeholder="例如：每日 ETL 寫入" maxlength="255"></label>
+      <div><button type="submit">新增並產生密碼</button></div>
     </form>
-    <p class="hint">只新增目標 fab 缺少的授權，不會刪除目標 fab 原有的授權。只列出已開通 doris path 的 fab。</p>
+    <p class="hint">密碼由系統產生（32 字元英數），只在建立或重新產生時顯示一次，Console 只保存加密後的版本。
+      username 在同一座 Doris 上不能重複。</p>
   </section>
 
   <div class="page-foot">
     <form method="post" th:action="@{/workspaces/{w}/fabs/{c}/path/delete(w=${workspace},c=${cluster})}"
-          onsubmit="return confirm('確定要清空這個 fab 的 doris path？SA 會被移除。')">
-      <button class="link danger" type="submit" th:disabled="${!#lists.isEmpty(grants)}"
-              th:title="${#lists.isEmpty(grants)} ? '' : '還有授權，不能清空 doris path'">清空 doris path</button>
+          onsubmit="return confirm('確定要清空這個 fab 的 doris path？')">
+      <button class="link danger" type="submit" th:disabled="${!#lists.isEmpty(sas)}"
+              th:title="${#lists.isEmpty(sas)} ? '' : '還有 SA，不能清空 doris path'">清空 doris path</button>
     </form>
   </div>
 </main>

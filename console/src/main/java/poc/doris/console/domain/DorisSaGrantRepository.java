@@ -5,11 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DorisSaGrantRepository extends JpaRepository<DorisSaGrant, Long> {
 
-    List<DorisSaGrant> findByWorkspaceDorisIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(
-            String workspaceDorisId);
+    List<DorisSaGrant> findBySaIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(String saId);
 
-    long countByWorkspaceDorisId(String workspaceDorisId);
+    long countBySaId(String saId);
 
-    boolean existsByWorkspaceDorisIdAndCatalogNameAndDatabaseNameAndTableNameAndPrivilege(
-            String workspaceDorisId, String catalogName, String databaseName, String tableName, String privilege);
+    boolean existsBySaIdAndCatalogNameAndDatabaseNameAndTableNameAndPrivilege(
+            String saId, String catalogName, String databaseName, String tableName, String privilege);
 }

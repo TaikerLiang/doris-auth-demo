@@ -44,8 +44,8 @@ class SyncServiceTest {
 
     @Test
     void sendsOnlyTheNewestVersionAndMarksEveryOlderEventSent() {
-        changeFabAThreeTimes();
-        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(true, 3));
+        changeFabAFourTimes();
+        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(true, 4));
 
         assertThat(sync.relay()).isEqualTo(1);
 
@@ -53,10 +53,10 @@ class SyncServiceTest {
         verify(client, times(1)).putState(sent.capture());
         Snapshot s = sent.getValue();
         assertThat(s.cluster()).isEqualTo("fab-a");
-        assertThat(s.version()).isEqualTo(3);
+        assertThat(s.version()).isEqualTo(4);
         assertThat(s.hosts()).extracting(Snapshot.Host::instanceName).containsExactly("doris-fab-a");
         assertThat(s.paths()).singleElement().satisfies(p -> {
-            assertThat(p.username()).isEqualTo("sa_workspace_a");
+            assertThat(p.username()).isEqualTo("sa_workspace_a_etl");
             assertThat(p.password()).hasSize(32); // decrypted for transit
         });
         assertThat(s.grants()).extracting(Snapshot.Grant::table).containsExactly("customers", "orders");
@@ -65,7 +65,7 @@ class SyncServiceTest {
 
     @Test
     void failedSendBacksOffInsteadOfRetryingRightAway() {
-        changeFabAThreeTimes();
+        changeFabAFourTimes();
         when(client.putState(any())).thenThrow(new IllegalStateException("connection refused"));
 
         assertThat(sync.relay()).isZero();
@@ -81,12 +81,12 @@ class SyncServiceTest {
 
     @Test
     void versionTheFabAlreadyHasAsksItToApplyAgain() {
-        changeFabAThreeTimes();
-        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(true, 3));
+        changeFabAFourTimes();
+        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(true, 4));
         sync.relay();
 
         sync.enqueue("fab-a"); // manual trigger: same version again
-        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(false, 3));
+        when(client.putState(any())).thenReturn(new ClusterClient.PutResult(false, 4));
         sync.relay();
 
         verify(client).trigger("fab-a");
@@ -115,9 +115,11 @@ class SyncServiceTest {
         });
     }
 
-    private void changeFabAThreeTimes() {
+    /** Four changes, so fab-a is at version 4 with four pending events. */
+    private void changeFabAFourTimes() {
         permissions.openPath("workspace-a", "fab-a", "7d1f3a52-0a5e-4c1a-9a43-6f2b1c0e0a01");
-        permissions.addGrant("workspace-a", "fab-a", "internal", "olist", "orders", "SELECT_PRIV");
-        permissions.addGrant("workspace-a", "fab-a", "internal", "olist", "customers", "SELECT_PRIV");
+        String sa = permissions.createSa("workspace-a", "fab-a", "sa_workspace_a_etl", "").sa().getId();
+        permissions.addGrant("workspace-a", "fab-a", sa, "internal", "olist", "orders", "SELECT_PRIV");
+        permissions.addGrant("workspace-a", "fab-a", sa, "internal", "olist", "customers", "SELECT_PRIV");
     }
 }

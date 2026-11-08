@@ -15,7 +15,7 @@ public class DorisSaGrant {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     @Column(columnDefinition = "char(36)")
-    private String workspaceDorisId;
+    private String saId;
     private String catalogName;
     private String databaseName;
     private String tableName;
@@ -24,9 +24,9 @@ public class DorisSaGrant {
     protected DorisSaGrant() {
     }
 
-    public DorisSaGrant(String workspaceDorisId, String catalogName, String databaseName, String tableName,
+    public DorisSaGrant(String saId, String catalogName, String databaseName, String tableName,
             String privilege) {
-        this.workspaceDorisId = workspaceDorisId;
+        this.saId = saId;
         this.catalogName = catalogName;
         this.databaseName = databaseName;
         this.tableName = tableName;
@@ -37,8 +37,8 @@ public class DorisSaGrant {
         return id;
     }
 
-    public String getWorkspaceDorisId() {
-        return workspaceDorisId;
+    public String getSaId() {
+        return saId;
     }
 
     public String getCatalogName() {

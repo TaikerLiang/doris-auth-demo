@@ -17,7 +17,9 @@ import poc.doris.console.domain.ClusterRepository;
 import poc.doris.console.domain.DorisClusterSync;
 import poc.doris.console.domain.DorisClusterSyncRepository;
 import poc.doris.console.domain.DorisHostRepository;
+import poc.doris.console.domain.DorisSa;
 import poc.doris.console.domain.DorisSaGrantRepository;
+import poc.doris.console.domain.DorisSaRepository;
 import poc.doris.console.domain.DorisSyncOutbox;
 import poc.doris.console.domain.DorisSyncOutboxRepository;
 import poc.doris.console.domain.WorkspaceDoris;
@@ -37,6 +39,7 @@ public class SyncService {
     private final ClusterRepository clusters;
     private final DorisHostRepository hosts;
     private final WorkspaceDorisRepository paths;
+    private final DorisSaRepository sas;
     private final DorisSaGrantRepository grants;
     private final DorisSyncOutboxRepository outbox;
     private final DorisClusterSyncRepository syncs;
@@ -45,11 +48,12 @@ public class SyncService {
     private final TransactionTemplate tx;
 
     public SyncService(ClusterRepository clusters, DorisHostRepository hosts, WorkspaceDorisRepository paths,
-            DorisSaGrantRepository grants, DorisSyncOutboxRepository outbox, DorisClusterSyncRepository syncs,
-            CredentialCipher cipher, ClusterClient client, TransactionTemplate tx) {
+            DorisSaRepository sas, DorisSaGrantRepository grants, DorisSyncOutboxRepository outbox,
+            DorisClusterSyncRepository syncs, CredentialCipher cipher, ClusterClient client, TransactionTemplate tx) {
         this.clusters = clusters;
         this.hosts = hosts;
         this.paths = paths;
+        this.sas = sas;
         this.grants = grants;
         this.outbox = outbox;
         this.syncs = syncs;
@@ -132,19 +136,21 @@ public class SyncService {
     /** The fab's state and its desired_version, read in one transaction so they match. */
     private Snapshot snapshot(String cluster) {
         long version = syncs.findById(cluster).map(DorisClusterSync::getDesiredVersion).orElse(0L);
-        List<WorkspaceDoris> fabPaths = paths.findByClusterName(cluster);
+        Map<String, WorkspaceDoris> fabPaths = paths.findByClusterName(cluster).stream()
+                .collect(Collectors.toMap(WorkspaceDoris::getId, p -> p));
+        List<DorisSa> fabSas = sas.findByWorkspaceDorisIdIn(List.copyOf(fabPaths.keySet()));
         return new Snapshot(cluster, version,
                 hosts.findByClusterName(cluster).stream().map(h -> new Snapshot.Host(h.getId(), h.getInstanceName(),
                         h.getFeHost(), h.getQueryPort(), h.getHttpPort(), h.getSecretRef())).toList(),
-                fabPaths.stream().map(p -> new Snapshot.Path(p.getId(), p.getWorkspaceName(), p.getDorisHostId(),
-                        p.getUsername(), cipher.decrypt(p.getPasswordEnc()))).toList(),
-                fabPaths.stream()
-                        .flatMap(p -> grants
-                                .findByWorkspaceDorisIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(
-                                        p.getId())
+                fabSas.stream().map(sa -> new Snapshot.Path(sa.getId(),
+                        fabPaths.get(sa.getWorkspaceDorisId()).getWorkspaceName(), sa.getDorisHostId(),
+                        sa.getUsername(), cipher.decrypt(sa.getPasswordEnc()))).toList(),
+                fabSas.stream()
+                        .flatMap(sa -> grants
+                                .findBySaIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(sa.getId())
                                 .stream())
-                        .map(g -> new Snapshot.Grant(g.getWorkspaceDorisId(), g.getCatalogName(),
-                                g.getDatabaseName(), g.getTableName(), g.getPrivilege()))
+                        .map(g -> new Snapshot.Grant(g.getSaId(), g.getCatalogName(), g.getDatabaseName(),
+                                g.getTableName(), g.getPrivilege()))
                         .toList());
     }
 
