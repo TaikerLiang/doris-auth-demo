@@ -8,13 +8,13 @@
   <section class="page-head">
     <a class="crumb" th:href="@{/workspaces}">← Workspaces</a>
     <h1 th:text="${workspace}">workspace</h1>
-    <p th:text="'已在 ' + ${#lists.size(opened)} + ' / ' + ${fabCount} + ' 個 fab 開通 doris path。點 fab 管理該 fab 的授權。'">已開通</p>
+    <p th:text="'已在 ' + ${#lists.size(opened)} + ' / ' + ${fabCount} + ' 個 fab 開通 doris path。SA 與授權在各 fab 的頁面管理。'">已開通</p>
   </section>
 
   <div class="table-wrap">
     <table>
       <thead>
-      <tr><th>Fab</th><th>Doris instance</th><th>SA</th><th>授權</th></tr>
+      <tr><th>Fab</th><th>Doris instance</th><th>SA</th><th>授權</th><th></th></tr>
       </thead>
       <tbody>
       <tr th:each="r : ${opened}">
@@ -24,10 +24,17 @@
           <span th:text="${r.host?.instanceName}">doris</span>
           <div class="sub"><code th:text="${r.host?.feHost} + ':' + ${r.host?.queryPort}">fe:9030</code></div>
         </td>
-        <td class="nowrap" th:text="${r.saCount} + ' 個'">0 個</td>
+        <td class="nowrap">
+          <span th:if="${r.saCount > 0}" th:text="${r.saCount} + ' 個'">2 個</span>
+          <span class="status warn" th:if="${r.saCount == 0}">尚未新增 SA</span>
+        </td>
         <td class="nowrap" th:text="${r.grantCount} + ' 筆'">0 筆</td>
+        <td class="actions">
+          <a th:href="@{/workspaces/{w}/fabs/{c}(w=${workspace},c=${r.clusterName})}"
+             th:text="${r.saCount == 0} ? '新增 SA →' : '管理 SA 與授權 →'">管理 SA 與授權 →</a>
+        </td>
       </tr>
-      <tr th:if="${#lists.isEmpty(opened)}"><td colspan="4" class="muted">還沒有在任何 fab 開通 doris path</td></tr>
+      <tr th:if="${#lists.isEmpty(opened)}"><td colspan="5" class="muted">還沒有在任何 fab 開通 doris path</td></tr>
       </tbody>
     </table>
   </div>
