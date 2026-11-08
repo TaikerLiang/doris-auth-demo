@@ -62,7 +62,7 @@ docker compose logs -f loader   # 等它印完兩座 Doris 的匯入筆數後結
 
 預設帳號 `root`，密碼空白。要重新匯入資料：`docker compose run --rm loader`。
 
-Console：http://localhost:8080（Console DB 是 compose 裡的 `console-db`，MariaDB 10.6）。
+Console：http://localhost:8081（Console DB 是 compose 裡的 `console-db`，MariaDB 10.6）。
 
 ## Console 功能
 
