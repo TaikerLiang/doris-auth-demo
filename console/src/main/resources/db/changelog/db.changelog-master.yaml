@@ -132,3 +132,52 @@ databaseChangeLog:
             tableName: doris_cluster_sync
             columns:
               - column: { name: last_drift, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+
+  # A doris path is now only the whitelist (workspace x fab -> host); a workspace can have several SAs on it.
+  # Each existing path becomes one SA with the same id, so sa_id, Doris users and Redis keys stay as they are.
+  - changeSet:
+      id: 5-multiple-sas
+      author: poc
+      changes:
+        - createTable:
+            tableName: doris_sas
+            columns:
+              - column: { name: id, type: CHAR(36), constraints: { primaryKey: true } }
+              - column: { name: workspace_doris_id, type: CHAR(36), constraints: { nullable: false, foreignKeyName: fk_sa_wd, references: workspace_doris(id) } }
+              # Copied from the path so a username can be unique per Doris host, which is Doris's user namespace
+              - column: { name: doris_host_id, type: CHAR(36), constraints: { nullable: false } }
+              - column: { name: username, type: VARCHAR(128), constraints: { nullable: false } }
+              - column: { name: description, type: VARCHAR(255), constraints: { nullable: false } }
+              - column: { name: password_enc, type: TEXT, constraints: { nullable: false } }
+              - column: { name: key_version, type: INT, constraints: { nullable: false } }
+              - column: { name: created_at, type: DATETIME, constraints: { nullable: false } }
+        - addUniqueConstraint:
+            tableName: doris_sas
+            columnNames: doris_host_id, username
+            constraintName: uk_sa_host_username
+        - sql:
+            sql: >-
+              INSERT INTO doris_sas (id, workspace_doris_id, doris_host_id, username, description, password_enc,
+              key_version, created_at)
+              SELECT id, id, doris_host_id, username, '', password_enc, key_version, CURRENT_TIMESTAMP
+              FROM workspace_doris
+
+        - dropForeignKeyConstraint: { baseTableName: doris_sa_grants, constraintName: fk_grant_wd }
+        - dropUniqueConstraint: { tableName: doris_sa_grants, constraintName: uk_grant }
+        - renameColumn: { tableName: doris_sa_grants, oldColumnName: workspace_doris_id, newColumnName: sa_id, columnDataType: CHAR(36) }
+        - addForeignKeyConstraint: { baseTableName: doris_sa_grants, baseColumnNames: sa_id, constraintName: fk_grant_sa, referencedTableName: doris_sas, referencedColumnNames: id }
+        - addUniqueConstraint:
+            tableName: doris_sa_grants
+            columnNames: sa_id, catalog_name, database_name, table_name, privilege
+            constraintName: uk_grant
+
+        # MariaDB backs fk_wd_host with uk_wd_host_username; give the foreign key its own index first
+        - createIndex:
+            tableName: workspace_doris
+            indexName: idx_wd_host
+            columns:
+              - column: { name: doris_host_id }
+        - dropUniqueConstraint: { tableName: workspace_doris, constraintName: uk_wd_host_username }
+        - dropColumn: { tableName: workspace_doris, columnName: username }
+        - dropColumn: { tableName: workspace_doris, columnName: password_enc }
+        - dropColumn: { tableName: workspace_doris, columnName: key_version }

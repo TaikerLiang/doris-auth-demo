@@ -24,7 +24,7 @@
           <span th:text="${r.host?.instanceName}">doris</span>
           <div class="sub"><code th:text="${r.host?.feHost} + ':' + ${r.host?.queryPort}">fe:9030</code></div>
         </td>
-        <td><code th:text="${r.path.username}">sa</code></td>
+        <td class="nowrap" th:text="${r.saCount} + ' 個'">0 個</td>
         <td class="nowrap" th:text="${r.grantCount} + ' 筆'">0 筆</td>
       </tr>
       <tr th:if="${#lists.isEmpty(opened)}"><td colspan="4" class="muted">還沒有在任何 fab 開通 doris path</td></tr>
@@ -49,7 +49,7 @@
       </label>
       <button type="submit">開通 doris path</button>
     </form>
-    <p class="hint">開通時會建立 SA，並產生隨機密碼加密保存。只列出還沒開通的 fab。</p>
+    <p class="hint">開通 doris path 後，再到該 fab 的頁面新增 SA。只列出還沒開通的 fab。</p>
   </section>
 </main>
 </body>

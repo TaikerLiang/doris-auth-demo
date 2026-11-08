@@ -12,6 +12,7 @@ public record Snapshot(String cluster, long version, List<Host> hosts, List<Path
             String secretRef) {
     }
 
+    /** One SA. The Cluster API's JSON calls it a path: it predates several SAs per doris path. */
     public record Path(String saId, String workspace, String hostId, String username, String password) {
     }
 

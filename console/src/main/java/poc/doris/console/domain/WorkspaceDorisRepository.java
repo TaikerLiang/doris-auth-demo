@@ -13,6 +13,4 @@ public interface WorkspaceDorisRepository extends JpaRepository<WorkspaceDoris, 
     List<WorkspaceDoris> findByClusterName(String clusterName);
 
     boolean existsByDorisHostId(String dorisHostId);
-
-    boolean existsByDorisHostIdAndUsername(String dorisHostId, String username);
 }
