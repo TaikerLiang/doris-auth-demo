@@ -38,9 +38,14 @@ service() { # service stop|start <compose service>
     --filter "label=com.docker.compose.service=$2")" >/dev/null
 }
 
-sa_id() { console_sql "select id from workspace_doris where workspace_name='$1' and cluster_name='$2'"; }
+# Each e2e workspace has one SA per fab, named sa_<workspace>
+sa_id() {
+  console_sql "select s.id from doris_sas s join workspace_doris w on w.id = s.workspace_doris_id
+    where w.workspace_name='$1' and w.cluster_name='$2'"
+}
 grant_id() { # grant_id <workspace> <fab> <table> <privilege>
-  console_sql "select g.id from doris_sa_grants g join workspace_doris w on w.id = g.workspace_doris_id
+  console_sql "select g.id from doris_sa_grants g join doris_sas s on s.id = g.sa_id
+    join workspace_doris w on w.id = s.workspace_doris_id
     where w.workspace_name='$1' and w.cluster_name='$2' and g.table_name='$3' and g.privilege='$4'"
 }
 password() { redis-cli -h "${REDIS[$2]}" GET "doris:${INSTANCE[$2]}:cred:$(sa_id "$1" "$2")" | jq -r .password; }
@@ -52,19 +57,27 @@ has_grants() { # has_grants <workspace> <fab> <table>...: SELECT_PRIV on each, p
 }
 doris_grants() { doris "$1" -e "SHOW GRANTS FOR '$2'@'%'" 2>/dev/null | cut -f8,9; }
 
-open_path() { post "/workspaces/$1/paths" -d "hostId=${HOST_ID[$2]}" >/dev/null; }
+open_path() { # open_path <workspace> <fab>: the doris path plus its SA sa_<workspace>
+  post "/workspaces/$1/paths" -d "hostId=${HOST_ID[$2]}" >/dev/null
+  post "/workspaces/$1/fabs/$2/sas" -d "username=sa_${1//-/_}&description=e2e" >/dev/null
+}
 add_grant() { # add_grant <workspace> <fab> <table> [privilege]
-  post "/workspaces/$1/fabs/$2/grants" -d "catalog=internal&database=olist&table=$3&privilege=${4:-SELECT_PRIV}" >/dev/null
+  post "/workspaces/$1/fabs/$2/sas/$(sa_id "$1" "$2")/grants" -d "catalog=internal&database=olist&table=$3&privilege=${4:-SELECT_PRIV}" >/dev/null
 }
 remove_grant() { post "/workspaces/$1/fabs/$2/grants/$(grant_id "$1" "$2" "$3" "${4:-SELECT_PRIV}")/delete" >/dev/null; }
-clear_path() { post "/workspaces/$1/fabs/$2/path/delete" >/dev/null; }
+clear_path() { # clear_path <workspace> <fab>: deletes its SA, then the doris path
+  [[ -n $(sa_id "$1" "$2") ]] && post "/workspaces/$1/fabs/$2/sas/$(sa_id "$1" "$2")/delete" >/dev/null
+  post "/workspaces/$1/fabs/$2/path/delete" >/dev/null
+}
 
 # What the Console says should be on the fab's Doris: one "user - -" line per SA plus one line per grant.
 desired() {
-  console_sql "select username, '-', '-' from workspace_doris where cluster_name='$1'
+  console_sql "select s.username, '-', '-' from doris_sas s join workspace_doris w on w.id = s.workspace_doris_id
+    where w.cluster_name='$1'
     union all
-    select w.username, concat(g.catalog_name, '.', g.database_name, '.', g.table_name), g.privilege
-    from doris_sa_grants g join workspace_doris w on w.id = g.workspace_doris_id where w.cluster_name='$1'" \
+    select s.username, concat(g.catalog_name, '.', g.database_name, '.', g.table_name), g.privilege
+    from doris_sa_grants g join doris_sas s on s.id = g.sa_id join workspace_doris w on w.id = s.workspace_doris_id
+    where w.cluster_name='$1'" \
     | tr '\t' ' ' | sort
 }
 
@@ -134,10 +147,11 @@ cleanup() {
   service start fe-b
   for ws in e2e-a e2e-b; do
     for fab in fab-a fab-b; do
-      console_sql "select g.table_name, g.privilege from doris_sa_grants g join workspace_doris w
-        on w.id = g.workspace_doris_id where w.workspace_name='$ws' and w.cluster_name='$fab'" \
+      console_sql "select g.table_name, g.privilege from doris_sa_grants g join doris_sas s on s.id = g.sa_id
+        join workspace_doris w on w.id = s.workspace_doris_id where w.workspace_name='$ws' and w.cluster_name='$fab'" \
         | while read -r table privilege; do remove_grant "$ws" "$fab" "$table" "$privilege"; done
-      [[ -n $(sa_id "$ws" "$fab") ]] && clear_path "$ws" "$fab"
+      [[ -n $(console_sql "select id from workspace_doris where workspace_name='$ws' and cluster_name='$fab'") ]] \
+        && clear_path "$ws" "$fab"
     done
   done
   doris fab-a -e "DROP USER IF EXISTS 'sa_manual'@'%'" 2>/dev/null
@@ -226,7 +240,7 @@ check "沒有錯誤" output_is "" status fab-a lastError
 assert_consistent fab-a
 
 CURRENT=9; scenario "9. 複製授權：fab-a → fab-b"
-post /workspaces/e2e-a/fabs/fab-a/grants/copy -d targets=fab-b >/dev/null
+post "/workspaces/e2e-a/fabs/fab-a/sas/$(sa_id e2e-a fab-a)/grants/copy" -d "targets=$(sa_id e2e-a fab-b)" >/dev/null
 wait_for "fab-b 套用到最新版本" synced fab-b
 assert_consistent fab-b
 check "fab-a 的授權（orders、customers）都複製到 fab-b" has_grants e2e-a fab-b orders customers
@@ -242,13 +256,25 @@ wait_for "REVOKE 套用" synced fab-a
 check "既有連線：REVOKE 立即生效，下一條查詢被拒" output_has "Access denied" in_session "select count(*) from olist.orders"
 remove_grant e2e-a fab-a customers
 clear_path e2e-a fab-a
-wait_for "DROP USER 套用" synced fab-a
+wait_for "刪除 SA 後 DROP USER 套用" synced fab-a
 assert_consistent fab-a
 check "既有連線：DROP USER 後查任何 table 都被拒" output_has "Access denied" in_session "select count(*) from olist.customers"
 check "既有連線：沒有被踢掉，不碰 table 的查詢仍可執行" output_has 42 in_session "select 42"
 check "舊密碼無法建立新連線" output_has "Access denied" as_sa fab-a sa_e2e_a "$PW" "select 1"
 check "Redis 的 cred key 已刪除" output_is "" redis-cli -h redis-a GET "doris:doris-fab-a:cred:$SA"
 eval "exec ${SESSION[1]}>&-"
+
+CURRENT=11; scenario "11. 重新產生密碼：舊密碼失效，DAO 從 Redis 拿到新密碼"
+OLD_PW=$(password e2e-b fab-a)
+OLD_VERSION=$(redis-cli -h redis-a GET doris:doris-fab-a:cred_version)
+post "/workspaces/e2e-b/fabs/fab-a/sas/$(sa_id e2e-b fab-a)/password" >/dev/null
+wait_for "新密碼套用" synced fab-a
+NEW_PW=$(password e2e-b fab-a)
+check "Redis 的密碼已更新" not output_is "$OLD_PW" echo "$NEW_PW"
+check "cred_version 遞增" not output_is "$OLD_VERSION" redis-cli -h redis-a GET doris:doris-fab-a:cred_version
+check "新密碼可以登入" output_is 3095 as_sa fab-a sa_e2e_b "$NEW_PW" "select count(*) from olist.sellers"
+check "舊密碼無法登入" output_has "Access denied" as_sa fab-a sa_e2e_b "$OLD_PW" "select 1"
+assert_consistent fab-a
 
 CURRENT=7; scenario "7. 不碰人工帳號：跑完所有情境後 sa_manual 不變"
 check "sa_manual 的帳號與權限都沒變" output_is "$MANUAL_BEFORE" doris_grants fab-a sa_manual

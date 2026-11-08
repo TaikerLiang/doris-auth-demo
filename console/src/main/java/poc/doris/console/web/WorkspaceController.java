@@ -19,8 +19,10 @@ import org.springframework.web.util.UriComponentsBuilder;
 import poc.doris.console.domain.ClusterRepository;
 import poc.doris.console.domain.DorisHost;
 import poc.doris.console.domain.DorisHostRepository;
+import poc.doris.console.domain.DorisSa;
 import poc.doris.console.domain.DorisSaGrant;
 import poc.doris.console.domain.DorisSaGrantRepository;
+import poc.doris.console.domain.DorisSaRepository;
 import poc.doris.console.domain.WorkspaceDoris;
 import poc.doris.console.domain.WorkspaceDorisRepository;
 import poc.doris.console.domain.WorkspaceRepository;
@@ -30,7 +32,19 @@ import poc.doris.console.service.PermissionService;
 class WorkspaceController {
 
     /** A doris path of one workspace in one fab. */
-    record FabRow(String clusterName, WorkspaceDoris path, DorisHost host, long grantCount) {
+    record FabRow(String clusterName, WorkspaceDoris path, DorisHost host, long saCount, long grantCount) {
+    }
+
+    /** One SA on the fab page, with its grants. */
+    record SaPanel(DorisSa sa, List<DorisSaGrant> grants) {
+    }
+
+    /** An SA of the same workspace that grants can be copied to. */
+    record CopyTarget(String saId, String label) {
+    }
+
+    /** Shown once at the top of the fab page after a password was generated. */
+    record ShownPassword(String username, String password) {
     }
 
     record WorkspaceRow(String workspaceName, List<String> fabs, long grantCount) {
@@ -40,15 +54,18 @@ class WorkspaceController {
     private final WorkspaceRepository workspaces;
     private final DorisHostRepository hosts;
     private final WorkspaceDorisRepository paths;
+    private final DorisSaRepository sas;
     private final DorisSaGrantRepository grants;
     private final PermissionService service;
 
     WorkspaceController(ClusterRepository clusters, WorkspaceRepository workspaces, DorisHostRepository hosts,
-            WorkspaceDorisRepository paths, DorisSaGrantRepository grants, PermissionService service) {
+            WorkspaceDorisRepository paths, DorisSaRepository sas, DorisSaGrantRepository grants,
+            PermissionService service) {
         this.clusters = clusters;
         this.workspaces = workspaces;
         this.hosts = hosts;
         this.paths = paths;
+        this.sas = sas;
         this.grants = grants;
         this.service = service;
     }
@@ -69,7 +86,7 @@ class WorkspaceController {
         }
         Map<String, List<WorkspaceDoris>> pathsByWorkspace = paths.findAll().stream()
                 .collect(Collectors.groupingBy(WorkspaceDoris::getWorkspaceName));
-        Map<String, Long> grantCounts = grantCounts();
+        Map<String, Long> grantCounts = grantCountsByPath();
         String needle = q.trim().toLowerCase();
         List<WorkspaceRow> rows = workspaces.findAllByOrderByWorkspaceName().stream().map(w -> {
             List<WorkspaceDoris> opened = pathsByWorkspace.getOrDefault(w.getWorkspaceName(), List.of());
@@ -95,11 +112,13 @@ class WorkspaceController {
         }
         Map<String, DorisHost> hostsById = hosts.findAllByOrderByClusterNameAscInstanceNameAsc().stream()
                 .collect(Collectors.toMap(DorisHost::getId, Function.identity(), (a, b) -> a, LinkedHashMap::new));
-        Map<String, Long> grantCounts = grantCounts();
+        Map<String, Long> grantCounts = grantCountsByPath();
+        Map<String, Long> saCounts = sas.findAll().stream()
+                .collect(Collectors.groupingBy(DorisSa::getWorkspaceDorisId, Collectors.counting()));
         List<FabRow> opened = paths.findByWorkspaceName(workspace).stream()
                 .sorted((a, b) -> a.getClusterName().compareTo(b.getClusterName()))
                 .map(p -> new FabRow(p.getClusterName(), p, hostsById.get(p.getDorisHostId()),
-                        grantCounts.getOrDefault(p.getId(), 0L)))
+                        saCounts.getOrDefault(p.getId(), 0L), grantCounts.getOrDefault(p.getId(), 0L)))
                 .toList();
         Set<String> openedFabs = opened.stream().map(FabRow::clusterName).collect(Collectors.toSet());
         // Hosts of the fabs this workspace has not opened yet, grouped by fab
@@ -118,16 +137,23 @@ class WorkspaceController {
         WorkspaceDoris path = paths.findByWorkspaceNameAndClusterName(workspace, cluster)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         workspace + " 在 " + cluster + " 沒有 doris path"));
+        Map<String, String> fabByPath = paths.findByWorkspaceName(workspace).stream()
+                .collect(Collectors.toMap(WorkspaceDoris::getId, WorkspaceDoris::getClusterName));
         model.addAttribute("workspace", workspace);
         model.addAttribute("cluster", cluster);
         model.addAttribute("path", path);
         model.addAttribute("host", hosts.findById(path.getDorisHostId()).orElse(null));
-        model.addAttribute("grants",
-                grants.findByWorkspaceDorisIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(
-                        path.getId()));
+        model.addAttribute("sas", sas.findByWorkspaceDorisIdOrderByUsername(path.getId()).stream()
+                .map(sa -> new SaPanel(sa,
+                        grants.findBySaIdOrderByCatalogNameAscDatabaseNameAscTableNameAscPrivilegeAsc(sa.getId())))
+                .toList());
+        model.addAttribute("copyTargets", sas.findByWorkspaceDorisIdIn(List.copyOf(fabByPath.keySet())).stream()
+                .map(sa -> new CopyTarget(sa.getId(),
+                        fabByPath.get(sa.getWorkspaceDorisId()) + " · " + sa.getUsername()))
+                .sorted((a, b) -> a.label().compareTo(b.label()))
+                .toList());
         model.addAttribute("privileges", PermissionService.PRIVILEGES.stream().sorted().toList());
-        model.addAttribute("copyTargets", paths.findByWorkspaceName(workspace).stream()
-                .map(WorkspaceDoris::getClusterName).filter(c -> !c.equals(cluster)).sorted().toList());
+        model.addAttribute("usernamePrefix", "sa_" + workspace.replaceAll("[^A-Za-z0-9]", "_") + "_");
         return "fab";
     }
 
@@ -136,9 +162,8 @@ class WorkspaceController {
     String openPath(@PathVariable String workspace, @RequestParam String hostId, RedirectAttributes flash) {
         DorisHost host = hosts.findById(hostId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "找不到 Doris host"));
-        WorkspaceDoris path = service.openPath(workspace, host.getClusterName(), hostId);
-        flash.addFlashAttribute("notice",
-                host.getClusterName() + " 已開通 doris path，SA " + path.getUsername() + " 的密碼已加密保存");
+        service.openPath(workspace, host.getClusterName(), hostId);
+        flash.addFlashAttribute("notice", host.getClusterName() + " 已開通 doris path，接著新增 SA");
         return backToFab(workspace, host.getClusterName());
     }
 
@@ -149,12 +174,37 @@ class WorkspaceController {
         return back(workspace);
     }
 
-    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/grants")
-    String addGrant(@PathVariable String workspace, @PathVariable String cluster, @RequestParam String catalog,
-            @RequestParam String database, @RequestParam String table, @RequestParam String privilege,
+    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/sas")
+    String createSa(@PathVariable String workspace, @PathVariable String cluster, @RequestParam String username,
+            @RequestParam(defaultValue = "") String description, RedirectAttributes flash) {
+        PermissionService.NewPassword created = service.createSa(workspace, cluster, username.trim(),
+                description.trim());
+        flash.addFlashAttribute("shownPassword", new ShownPassword(created.sa().getUsername(), created.password()));
+        return backToFab(workspace, cluster);
+    }
+
+    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/sas/{saId}/password")
+    String regeneratePassword(@PathVariable String workspace, @PathVariable String cluster, @PathVariable String saId,
             RedirectAttributes flash) {
-        service.addGrant(workspace, cluster, catalog.trim(), database.trim(), table.trim(), privilege);
-        flash.addFlashAttribute("notice", "已在 " + cluster + " 授予 " + privilege + " ON "
+        PermissionService.NewPassword renewed = service.regeneratePassword(workspace, cluster, saId);
+        flash.addFlashAttribute("shownPassword", new ShownPassword(renewed.sa().getUsername(), renewed.password()));
+        return backToFab(workspace, cluster);
+    }
+
+    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/sas/{saId}/delete")
+    String deleteSa(@PathVariable String workspace, @PathVariable String cluster, @PathVariable String saId,
+            RedirectAttributes flash) {
+        service.deleteSa(workspace, cluster, saId);
+        flash.addFlashAttribute("notice", "已刪除 SA，同步後會從 " + cluster + " 的 Doris 移除");
+        return backToFab(workspace, cluster);
+    }
+
+    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/sas/{saId}/grants")
+    String addGrant(@PathVariable String workspace, @PathVariable String cluster, @PathVariable String saId,
+            @RequestParam String catalog, @RequestParam String database, @RequestParam String table,
+            @RequestParam String privilege, RedirectAttributes flash) {
+        service.addGrant(workspace, cluster, saId, catalog.trim(), database.trim(), table.trim(), privilege);
+        flash.addFlashAttribute("notice", "已授予 " + privilege + " ON "
                 + catalog.trim() + "." + database.trim() + "." + table.trim());
         return backToFab(workspace, cluster);
     }
@@ -163,22 +213,24 @@ class WorkspaceController {
     String removeGrant(@PathVariable String workspace, @PathVariable String cluster, @PathVariable long grantId,
             RedirectAttributes flash) {
         service.removeGrant(workspace, cluster, grantId);
-        flash.addFlashAttribute("notice", "已在 " + cluster + " 移除授權");
+        flash.addFlashAttribute("notice", "已移除授權");
         return backToFab(workspace, cluster);
     }
 
-    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/grants/copy")
-    String copyGrants(@PathVariable String workspace, @PathVariable String cluster,
+    @PostMapping("/workspaces/{workspace}/fabs/{cluster}/sas/{saId}/grants/copy")
+    String copyGrants(@PathVariable String workspace, @PathVariable String cluster, @PathVariable String saId,
             @RequestParam(defaultValue = "") List<String> targets, RedirectAttributes flash) {
-        int added = service.copyGrants(workspace, cluster, targets);
-        flash.addFlashAttribute("notice", "已複製到 " + targets.size() + " 個 fab，共新增 " + added + " 筆授權");
+        int added = service.copyGrants(workspace, cluster, saId, targets);
+        flash.addFlashAttribute("notice", "已複製到 " + targets.size() + " 個 SA，共新增 " + added + " 筆授權");
         return backToFab(workspace, cluster);
     }
 
-    /** Grant count per workspace_doris id. */
-    private Map<String, Long> grantCounts() {
+    /** Grant count per doris path (workspace_doris id), over all its SAs. */
+    private Map<String, Long> grantCountsByPath() {
+        Map<String, String> pathBySa = sas.findAll().stream()
+                .collect(Collectors.toMap(DorisSa::getId, DorisSa::getWorkspaceDorisId));
         return grants.findAll().stream()
-                .collect(Collectors.groupingBy(DorisSaGrant::getWorkspaceDorisId, Collectors.counting()));
+                .collect(Collectors.groupingBy(g -> pathBySa.get(g.getSaId()), Collectors.counting()));
     }
 
     private List<String> clusterNames() {

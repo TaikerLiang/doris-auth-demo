@@ -79,10 +79,14 @@ Console 只寫 Console DB，不直接連 Doris。每次變更都會在同一個 
 Console 的排程鎖放在自己的 `console-redis`，那裡不放任何 SA 憑證。
 
 - **Workspaces**：每個 workspace 一列，顯示已開通的 fab 與授權總數。可以搜尋名稱、篩選「有開通某個 fab」的 workspace。
-- **Workspace 頁**：列出這個 workspace 已開通的 fab；在下方選 fab 的 Doris host 開通新的 doris path（只列出還沒開通的 fab）。
-  開通時會產生 32 字元的隨機 SA 密碼，以 AES-256-GCM 加密存入 `password_enc`。
-- **Fab 頁**（workspace × fab）：新增或移除 table 權限（`catalog.database.table` + 權限）、清空 doris path，
-  以及把授權複製到其他已開通的 fab。複製只新增目標 fab 缺少的授權，不刪除目標 fab 原有的授權。
+- **Workspace 頁**：列出這個 workspace 已開通的 fab（SA 數、授權數）；在下方選 fab 的 Doris host 開通新的 doris path
+  （只列出還沒開通的 fab）。doris path 只是白名單，代表這個 workspace 可以在該 fab 的 Doris 上建 SA。
+- **Fab 頁**（workspace × fab）：一個 workspace 在一個 fab 可以有多個 SA。
+  - 新增 SA：填 username（預設 `sa_<workspace>_`）與用途說明，系統產生 32 字元英數密碼，以 AES-256-GCM 加密存入
+    `password_enc`。**密碼只在建立或「重新產生密碼」當下顯示一次**（可一鍵複製），之後只顯示「已加密」。
+  - 重新產生密碼：同步後舊密碼立即失效，fab Redis 的憑證與 `cred_version` 跟著更新，DAO 不需要手動設定。
+  - 每個 SA 各自的 table 權限（`catalog.database.table` + 權限），以及把授權複製到同一個 workspace 的其他 SA
+    （可跨 fab）。複製只新增目標缺少的授權，不刪除目標原有的授權。
 - **Doris Hosts**：登記或刪除各 fab 的 Doris instance。
 - **同步狀態**：各 fab 的 desired / applied version（不一致就標「落後」）、待送事件與重試、最後的錯誤、
   漂移數，以及「立即同步」按鈕（也可以 `POST /api/sync/{fab}`）。applied 才代表已經套用到 Doris。
@@ -93,8 +97,11 @@ Console 的排程鎖放在自己的 `console-redis`，那裡不放任何 SA 憑�
 
 | 情境 | 結果 |
 | --- | --- |
-| workspace 在該 fab 沒有 doris path 時授權或移除授權 | 403 |
-| doris path 還有授權時清空 | 409 |
+| workspace 在該 fab 沒有 doris path 時新增 SA、授權或移除授權 | 403 |
+| doris path 還有 SA 時清空 | 409 |
+| SA 還有授權時刪除 | 409 |
+| username 在同一座 Doris 上已存在 | 409 |
+| username 不是英數與 `_`，或是 `root`、`admin` | 400 |
 | 還有 doris path 指向的 Doris host 被刪除 | 409 |
 | doris path 指向別的 fab 的 Doris host | 400 |
 | catalog / database / table 不是單純識別字（table 可用 `*`） | 400 |
@@ -159,7 +166,7 @@ docker compose run --rm e2e           # 約 3 分鐘；全部通過時結束碼�
 | # | 情境 | 驗證什麼 |
 | --- | --- | --- |
 | 1 | 正常生效 | 開通並授權後 Doris 一致；用 fab Redis 的帳密登入，有權限的 table 可查、其他被拒 |
-| 2 | 撤銷 | 先 `REVOKE`、再 `DROP USER`；舊密碼不能建立新連線；Redis 的 cred key 被刪除 |
+| 2 | 撤銷 | 先 `REVOKE`、刪除 SA 後 `DROP USER`；舊密碼不能建立新連線；Redis 的 cred key 被刪除 |
 | 3 | 部分 fab 同步失敗 | 停掉 cluster-api-b：fab-a 照常生效，fab-b 落後並退避重試，恢復後追到最新版本 |
 | 4 | Doris 掛掉 | 停掉 fe-b：Cluster 回報錯誤，FE 恢復後自動補上 |
 | 5 | 錯誤的授權 | 不存在的 table：同 fab 其他 SA 照常生效，`lastError` 說明原因，applied 不前進 |
@@ -168,6 +175,7 @@ docker compose run --rm e2e           # 約 3 分鐘；全部通過時結束碼�
 | 8 | 冪等 | 重複觸發同一個版本：不執行任何 SQL（漂移數 0） |
 | 9 | 複製授權 | fab-a 的授權複製到 fab-b，fab-b 原本多的授權保留 |
 | 10 | 撤銷對既有連線的影響 | Doris 4.1.4 實測：`REVOKE` 對既有連線立即生效；`DROP USER` **不會斷線**，但該連線查任何 table 都被拒 |
+| 11 | 重新產生密碼 | 同步後 Redis 的密碼與 `cred_version` 更新；新密碼可登入、舊密碼被拒 |
 
 情境 6 用「立即同步」（`POST /api/sync/fab-a`）觸發，不等每 10 分鐘的 `doris-reconcile`；兩者走同一段 reconcile。
 每一步最多等 `E2E_WAIT` 秒（預設 180），涵蓋 relay 的退避與 FE 重啟。
