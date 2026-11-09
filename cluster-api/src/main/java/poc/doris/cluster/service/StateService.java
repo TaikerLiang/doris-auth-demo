@@ -29,17 +29,10 @@ import poc.doris.cluster.service.ReconcilePlanner.DesiredSa;
 @Transactional
 public class StateService {
 
-    public static final Set<String> PRIVILEGES =
-            Set.of("SELECT_PRIV", "LOAD_PRIV", "ALTER_PRIV", "CREATE_PRIV", "DROP_PRIV");
-
-    // Everything below ends up inside SQL statements or Redis keys, so only plain values are accepted.
-    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9_]{1,64}");
-    // Console builds "sa_" + workspace name (up to 64), and its username column is VARCHAR(128)
-    private static final Pattern USERNAME = Pattern.compile("[A-Za-z0-9_]{1,128}");
+    // Values that reach SQL are whitelisted by SqlSafe; these only reach JDBC URLs, env lookups and Redis keys.
     private static final Pattern INSTANCE_NAME = Pattern.compile("[a-z0-9-]{1,64}");
     private static final Pattern HOSTNAME = Pattern.compile("[A-Za-z0-9.-]{1,255}");
     private static final Pattern ENV_NAME = Pattern.compile("[A-Z0-9_]{1,128}");
-    private static final Pattern PASSWORD = Pattern.compile("[A-Za-z0-9]{16,128}");
 
     /** The desired state of one Doris host, with plaintext passwords; only lives in memory. */
     public record HostState(DorisHost host, List<DesiredSa> sas) {
@@ -164,15 +157,15 @@ public class StateService {
         Set<String> saIds = s.paths().stream().map(Snapshot.Path::saId).collect(Collectors.toSet());
         for (Snapshot.Path p : s.paths()) {
             require(hostById.containsKey(p.hostId()), p.username() + " 指向不存在的 host");
-            require(USERNAME.matcher(p.username()).matches(), "username 不合法：" + p.username());
-            require(PASSWORD.matcher(p.password()).matches(), p.username() + " 的密碼格式不合法");
+            require(SqlSafe.isUsername(p.username()), "username 不合法：" + p.username());
+            require(SqlSafe.isPassword(p.password()), p.username() + " 的密碼格式不合法");
         }
         for (Snapshot.Grant g : s.grants()) {
             require(saIds.contains(g.saId()), "授權指向不存在的 sa_id " + g.saId());
-            require(IDENTIFIER.matcher(g.catalog()).matches() && IDENTIFIER.matcher(g.database()).matches()
-                    && (g.table().equals("*") || IDENTIFIER.matcher(g.table()).matches()),
+            require(SqlSafe.isIdentifier(g.catalog()) && SqlSafe.isIdentifier(g.database())
+                    && (g.table().equals("*") || SqlSafe.isIdentifier(g.table())),
                     "授權對象不合法：" + g.catalog() + "." + g.database() + "." + g.table());
-            require(PRIVILEGES.contains(g.privilege()), "不支援的權限 " + g.privilege());
+            require(SqlSafe.isPrivilege(g.privilege()), "不支援的權限 " + g.privilege());
         }
     }
 

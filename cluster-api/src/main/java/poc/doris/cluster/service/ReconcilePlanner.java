@@ -92,12 +92,19 @@ public final class ReconcilePlanner {
         }
     }
 
+    // Values are whitelisted again here (StateService already did at the API boundary) so that no other
+    // caller can turn a crafted name into SQL: these statements cannot be parameterized by JDBC.
     private static Sql userSql(Kind kind, String verb, DesiredSa sa) {
         String prefix = verb + " " + identity(sa.username()) + " IDENTIFIED BY ";
+        SqlSafe.require("***", SqlSafe.isPassword(sa.password()), "password"); // never log the password
         return new Sql(kind, prefix + "'" + sa.password() + "'", prefix + "'***'");
     }
 
     private static Sql grantSql(Kind kind, DorisGrant g, String username) {
+        // GRANT comes from desired state: full whitelist. REVOKE comes from Doris itself and may carry a
+        // privilege the Console never grants, which we must still be able to remove: shape check only.
+        SqlSafe.require(g.target() + " " + g.privilege(),
+                kind == Kind.GRANT ? SqlSafe.isGrant(g) : SqlSafe.isRevocable(g), kind.name());
         String sql = kind == Kind.GRANT
                 ? "GRANT " + g.privilege() + " ON " + g.target() + " TO " + identity(username)
                 : "REVOKE " + g.privilege() + " ON " + g.target() + " FROM " + identity(username);
@@ -105,7 +112,7 @@ public final class ReconcilePlanner {
     }
 
     private static String identity(String username) {
-        return "'" + username + "'@'%'";
+        return "'" + SqlSafe.require(username, SqlSafe.isUsername(username), "username") + "'@'%'";
     }
 
     private static List<DorisGrant> minus(Set<DorisGrant> a, Set<DorisGrant> b) {
