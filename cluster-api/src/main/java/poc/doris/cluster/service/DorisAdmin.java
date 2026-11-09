@@ -47,8 +47,14 @@ public class DorisAdmin {
         return users;
     }
 
+    /**
+     * Runs one DDL/DCL statement built by {@link ReconcilePlanner}. CREATE/ALTER/DROP USER, GRANT and REVOKE take
+     * identifiers, which JDBC cannot bind as parameters, so the statement is a plain string; every value in it has
+     * passed the {@link SqlSafe} whitelist twice (StateService at the API boundary, ReconcilePlanner when building).
+     */
     public void execute(Connection conn, String sql) throws SQLException {
         try (Statement st = conn.createStatement()) {
+            // nosemgrep: find_sec_bugs.SQL_INJECTION_JDBC — DDL/DCL cannot be parameterized; inputs whitelisted by SqlSafe
             st.execute(sql);
         }
     }

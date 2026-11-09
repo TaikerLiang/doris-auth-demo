@@ -1,6 +1,7 @@
 package poc.doris.cluster.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.Map;
@@ -44,20 +45,20 @@ class ReconcilePlannerTest {
 
     @Test
     void createsMissingSaWithItsGrants() {
-        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw", Set.of(ORDERS))), Map.of(), Map.of());
+        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw00000000000000", Set.of(ORDERS))), Map.of(), Map.of());
 
         assertThat(statements(plans)).containsExactly(
-                "CREATE USER 'sa_a'@'%' IDENTIFIED BY 'pw'",
+                "CREATE USER 'sa_a'@'%' IDENTIFIED BY 'pw00000000000000'",
                 "GRANT SELECT_PRIV ON internal.olist.orders TO 'sa_a'@'%'");
-        assertThat(plans.get(0).statements().get(0).display()).doesNotContain("pw").contains("'***'");
+        assertThat(plans.get(0).statements().get(0).display()).doesNotContain("pw00000000000000").contains("'***'");
     }
 
     @Test
     void revokesExtraAndGrantsMissing() {
         Map<String, Set<DorisGrant>> actual = Map.of("sa_a", GrantParser.parse(DB_PRIVS, TABLE_PRIVS));
         List<SaPlan> plans = ReconcilePlanner.plan(
-                List.of(sa("1", "sa_a", "pw", Set.of(ORDERS, CUSTOMERS, SELLERS))), actual,
-                Map.of("sa_a", managed("1", "pw")));
+                List.of(sa("1", "sa_a", "pw00000000000000", Set.of(ORDERS, CUSTOMERS, SELLERS))), actual,
+                Map.of("sa_a", managed("1", "pw00000000000000")));
 
         assertThat(statements(plans)).containsExactly(
                 "REVOKE ALTER_PRIV ON internal.olist.* FROM 'sa_a'@'%'",
@@ -68,8 +69,8 @@ class ReconcilePlannerTest {
 
     @Test
     void inSyncSaNeedsNothing() {
-        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw", Set.of(ORDERS))),
-                Map.of("sa_a", Set.of(ORDERS)), Map.of("sa_a", managed("1", "pw")));
+        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw00000000000000", Set.of(ORDERS))),
+                Map.of("sa_a", Set.of(ORDERS)), Map.of("sa_a", managed("1", "pw00000000000000")));
 
         assertThat(statements(plans)).isEmpty();
     }
@@ -78,47 +79,63 @@ class ReconcilePlannerTest {
     void changedPasswordOrSaIdAltersUser() {
         Map<String, Set<DorisGrant>> actual = Map.of("sa_a", Set.of());
 
-        assertThat(statements(ReconcilePlanner.plan(List.of(sa("1", "sa_a", "new", Set.of())), actual,
-                Map.of("sa_a", managed("1", "old"))))).containsExactly("ALTER USER 'sa_a'@'%' IDENTIFIED BY 'new'");
+        assertThat(statements(ReconcilePlanner.plan(List.of(sa("1", "sa_a", "new0000000000000", Set.of())), actual,
+                Map.of("sa_a", managed("1", "old0000000000000"))))).containsExactly("ALTER USER 'sa_a'@'%' IDENTIFIED BY 'new0000000000000'");
         // Path cleared and opened again: same username, new sa_id
-        assertThat(statements(ReconcilePlanner.plan(List.of(sa("2", "sa_a", "pw", Set.of())), actual,
-                Map.of("sa_a", managed("1", "pw"))))).containsExactly("ALTER USER 'sa_a'@'%' IDENTIFIED BY 'pw'");
+        assertThat(statements(ReconcilePlanner.plan(List.of(sa("2", "sa_a", "pw00000000000000", Set.of())), actual,
+                Map.of("sa_a", managed("1", "pw00000000000000"))))).containsExactly("ALTER USER 'sa_a'@'%' IDENTIFIED BY 'pw00000000000000'");
     }
 
     @Test
     void dropsManagedSaThatIsNoLongerDesired() {
         List<SaPlan> plans = ReconcilePlanner.plan(List.of(), Map.of("sa_a", Set.of(ORDERS)),
-                Map.of("sa_a", managed("1", "pw")));
+                Map.of("sa_a", managed("1", "pw00000000000000")));
 
         assertThat(plans).singleElement().satisfies(p -> {
             assertThat(p.forget()).isTrue();
             assertThat(p.statements()).extracting(Sql::sql).containsExactly("DROP USER 'sa_a'@'%'");
         });
         // Already gone from Doris: only forget it
-        assertThat(ReconcilePlanner.plan(List.of(), Map.of(), Map.of("sa_a", managed("1", "pw"))))
+        assertThat(ReconcilePlanner.plan(List.of(), Map.of(), Map.of("sa_a", managed("1", "pw00000000000000"))))
                 .singleElement().satisfies(p -> assertThat(p.statements()).isEmpty());
     }
 
     @Test
     void recreatesManagedSaDroppedByHand() {
-        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw", Set.of(ORDERS))), Map.of(),
-                Map.of("sa_a", managed("1", "pw")));
+        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw00000000000000", Set.of(ORDERS))), Map.of(),
+                Map.of("sa_a", managed("1", "pw00000000000000")));
 
         assertThat(statements(plans)).containsExactly(
-                "CREATE USER 'sa_a'@'%' IDENTIFIED BY 'pw'",
+                "CREATE USER 'sa_a'@'%' IDENTIFIED BY 'pw00000000000000'",
                 "GRANT SELECT_PRIV ON internal.olist.orders TO 'sa_a'@'%'");
     }
 
     @Test
     void neverTouchesUsersItDidNotCreate() {
         Map<String, Set<DorisGrant>> actual = Map.of("sa_a", Set.of(OLIST), "alice", Set.of(ORDERS));
-        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw", Set.of(ORDERS))), actual, Map.of());
+        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw00000000000000", Set.of(ORDERS))), actual, Map.of());
 
         assertThat(plans).singleElement().satisfies(p -> {
             assertThat(p.conflict()).isTrue();
             assertThat(p.statements()).isEmpty();
         });
     }
+
+    @Test
+    void refusesToBuildSqlFromUnsafeValues() {
+        // Defence in depth for #22: StateService whitelists at the API boundary, the planner checks again
+        DorisGrant evil = new DorisGrant("internal", "olist", "t'; DROP USER 'x", "SELECT_PRIV");
+        assertThatThrownBy(() -> ReconcilePlanner.plan(List.of(sa("1", "sa_a", PW, Set.of(evil))), Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ReconcilePlanner.plan(List.of(sa("1", "sa'@'%'; --", PW, Set.of())), Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> ReconcilePlanner.plan(List.of(sa("1", "sa_a", "pw' OR '1", Set.of())), Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("OR '1");
+        assertThatThrownBy(() -> ReconcilePlanner.plan(List.of(), Map.of("x'", Set.of()), Map.of("x'", managed("1", PW))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static final String PW = "pw00000000000000";
 
     private static DesiredSa sa(String saId, String username, String password, Set<DorisGrant> grants) {
         return new DesiredSa(saId, username, password, grants);
