@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
  * Whitelist for every value that is spliced into a Doris DDL/DCL statement. CREATE/ALTER/DROP USER, GRANT and
  * REVOKE take identifiers, not bind variables, so JDBC cannot parameterize them; the only defence is to accept
  * plain values only. {@link StateService} applies this at the API boundary and {@link ReconcilePlanner} again
- * when it builds each statement, so no caller can reach {@link DorisAdmin#execute} with an unchecked value.
+ * when it builds each statement, so no caller can reach {@link DorisClient.Session#apply} with an unchecked value.
  */
 public final class SqlSafe {
 

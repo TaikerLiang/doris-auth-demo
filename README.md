@@ -120,6 +120,8 @@ Console 的 relay 會自動呼叫；下面的 curl 只在單獨測試 Cluster AP
 | `POST /doris/trigger` | 排入一次套用（回 202），由 `doris-apply` 在幾秒內執行；也用來修正漂移 |
 | `GET /doris/status` | `receivedVersion`、`appliedVersion`、`lastError`、`lastDrift` |
 
+> **連線 Doris 的實作不在此 repo**（#24）：`Reconciler` 透過 `DorisClient` 介面讀權限、執行 SQL，預設的 `UnconfiguredDorisClient` 一律拒絕連線，所以每次套用都會在 `lastError` 回報「沒有 DorisClient 實作」，Redis 不會被改動。要實際套用，請提供一個標 `@Primary` 的 `DorisClient` bean（用平台 admin 帳號連 FE、以 `GrantParser` 解析 `SHOW ALL GRANTS`、逐筆執行 `ReconcilePlanner` 產生的語句）。
+
 套用時用平台 admin 帳號讀 `SHOW ALL GRANTS`，只補差異：缺的 SA `CREATE USER`、多的 `DROP USER`、
 缺的權限 `GRANT`、多的 `REVOKE`。只動 Cluster 自己建立過的 SA（記在 `doris_managed_users`），
 人工建立的帳號一律不碰；`information_schema`、`mysql` 這類內建 database 的權限也不碰。
@@ -158,6 +160,8 @@ docker compose exec redis-a redis-cli GET doris:doris-fab-a:cred:s1
 docker compose up -d --build --wait   # 整套服務都要在跑
 docker compose run --rm e2e           # 約 3 分鐘；全部通過時結束碼為 0
 ```
+
+> 需要先提供 `DorisClient` 實作（見上方 Cluster API 一節），否則套用不會生效、e2e 會失敗。
 
 腳本（`e2e/run.sh`）透過 Console 的 HTTP 端點改權限，再直接查 Doris 的 `SHOW ALL GRANTS`，
 和 Console DB 的期望狀態逐筆比對（每個 SA 與每筆權限都要一致，多一個沒人管的 `sa_*` 帳號也算不一致）。

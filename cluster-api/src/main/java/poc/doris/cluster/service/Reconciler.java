@@ -1,6 +1,5 @@
 package poc.doris.cluster.service;
 
-import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,11 +37,11 @@ public class Reconciler {
 
     private static final Logger log = LoggerFactory.getLogger(Reconciler.class);
 
-    private final DorisAdmin doris;
+    private final DorisClient doris;
     private final DorisManagedUserRepository managedUsers;
     private final CredentialStore credentials;
 
-    public Reconciler(DorisAdmin doris, DorisManagedUserRepository managedUsers, CredentialStore credentials) {
+    public Reconciler(DorisClient doris, DorisManagedUserRepository managedUsers, CredentialStore credentials) {
         this.doris = doris;
         this.managedUsers = managedUsers;
         this.credentials = credentials;
@@ -57,11 +56,11 @@ public class Reconciler {
                 .collect(Collectors.toMap(DesiredSa::username, Function.identity()));
         Map<String, Cred> creds = new HashMap<>();
         Set<String> keep = new HashSet<>(); // CREATE/ALTER USER failed: Doris still has the old password, if any
-        try (Connection conn = doris.connect(host)) {
+        try (DorisClient.Session session = doris.open(host)) {
             Map<String, ManagedSa> managed = managedUsers.findByDorisHostId(host.getId()).stream()
                     .collect(Collectors.toMap(DorisManagedUser::getUsername,
                             m -> new ManagedSa(m.getSaId(), m.getPasswordHash())));
-            for (SaPlan plan : ReconcilePlanner.plan(state.sas(), doris.readGrants(conn), managed)) {
+            for (SaPlan plan : ReconcilePlanner.plan(state.sas(), session.readGrants(), managed)) {
                 if (plan.conflict()) {
                     errors.add(instance + ": " + plan.username() + " 已存在於 Doris 但不是 Cluster 建立的，不接管");
                     continue;
@@ -76,7 +75,7 @@ public class Reconciler {
                         remember(host.getId(), sa);
                     }
                     try {
-                        doris.execute(conn, sql.sql());
+                        session.apply(sql);
                         executed++;
                         log.info("{}: {}", instance, sql.display());
                         if (sql.kind() == Kind.ALTER_USER) {
