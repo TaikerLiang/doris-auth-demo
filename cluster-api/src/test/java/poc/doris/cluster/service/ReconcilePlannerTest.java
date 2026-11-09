@@ -135,6 +135,21 @@ class ReconcilePlannerTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void revokesPrivilegesTheConsoleNeverGrants() {
+        // Added by hand on Doris: not in the desired-state whitelist, but it must still be revocable
+        DorisGrant handMade = new DorisGrant("internal", "olist", "*", "GRANT_PRIV");
+        List<SaPlan> plans = ReconcilePlanner.plan(List.of(sa("1", "sa_a", PW, Set.of(ORDERS))),
+                Map.of("sa_a", Set.of(ORDERS, handMade)), Map.of("sa_a", managed("1", PW)));
+
+        assertThat(statements(plans)).containsExactly("REVOKE GRANT_PRIV ON internal.olist.* FROM 'sa_a'@'%'");
+        // ...but a value from Doris that could break out of the statement is still refused
+        DorisGrant broken = new DorisGrant("internal", "olist", "*", "SELECT_PRIV; DROP USER 'x'");
+        assertThatThrownBy(() -> ReconcilePlanner.plan(List.of(sa("1", "sa_a", PW, Set.of(ORDERS))),
+                Map.of("sa_a", Set.of(ORDERS, broken)), Map.of("sa_a", managed("1", PW))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private static final String PW = "pw00000000000000";
 
     private static DesiredSa sa(String saId, String username, String password, Set<DorisGrant> grants) {

@@ -18,6 +18,8 @@ public final class SqlSafe {
     // Console builds "sa_" + workspace name (up to 64), and its username column is VARCHAR(128)
     private static final Pattern USERNAME = Pattern.compile("[A-Za-z0-9_]{1,128}");
     private static final Pattern PASSWORD = Pattern.compile("[A-Za-z0-9]{16,128}");
+    // No quotes, whitespace, dots or punctuation: cannot end a string, a name or a statement
+    private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]{1,255}");
 
     private SqlSafe() {
     }
@@ -39,9 +41,24 @@ public final class SqlSafe {
         return value != null && PRIVILEGES.contains(value);
     }
 
+    /** A grant from desired state: names and privilege must be ones the Console is allowed to hand out. */
     public static boolean isGrant(DorisGrant g) {
         return isIdentifier(g.catalog()) && isIdentifier(g.database())
                 && ("*".equals(g.table()) || isIdentifier(g.table())) && isPrivilege(g.privilege());
+    }
+
+    /**
+     * A grant read back from Doris that we are about to REVOKE. It may carry a privilege the Console never
+     * grants (someone added GRANT_PRIV by hand) and we must still be able to take it away, so only the shape is
+     * checked: each part is one token that cannot break out of the statement.
+     */
+    public static boolean isRevocable(DorisGrant g) {
+        return isToken(g.catalog()) && isToken(g.database()) && ("*".equals(g.table()) || isToken(g.table()))
+                && isToken(g.privilege());
+    }
+
+    private static boolean isToken(String value) {
+        return value != null && TOKEN.matcher(value).matches();
     }
 
     /** Returns {@code value} unchanged, or throws if it fails {@code check}. Used where SQL is built. */
